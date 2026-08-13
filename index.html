@@ -1,0 +1,524 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>🚛 Flotilla GPS Pro</title>
+
+<!-- Leaflet -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+<!-- Font Awesome -->
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+
+<style>
+  /* ============================================================
+     RESET Y BASE
+     ============================================================ */
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: #0a0a1a;
+    color: #fff;
+    overflow: hidden;
+    height: 100vh;
+    width: 100vw;
+    position: fixed;
+  }
+  
+  /* ============================================================
+     LOGIN OVERLAY (igual que Lotes San Pedro)
+     ============================================================ */
+  #login-overlay {
+    position: fixed; inset: 0; z-index: 9000;
+    background: #0a0a1a;
+    display: flex; align-items: center; justify-content: center;
+    padding: 20px;
+    transition: opacity 0.4s ease;
+  }
+  #login-overlay.oculto {
+    opacity: 0; pointer-events: none;
+  }
+  .login-box {
+    width: 100%; max-width: 380px;
+    background: rgba(26, 26, 46, 0.95);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 20px;
+    padding: 32px 28px 28px;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.6);
+    position: relative;
+    overflow: hidden;
+  }
+  .login-box::before {
+    content: ''; position: absolute; top: -60px; right: -60px;
+    width: 200px; height: 200px; border-radius: 50%;
+    background: radial-gradient(circle, rgba(79,195,247,0.07), transparent 70%);
+    pointer-events: none;
+  }
+  .login-logo {
+    font-family: 'Syne', sans-serif; font-weight: 800; font-size: 1.6rem;
+    color: #4fc3f7; text-align: center; margin-bottom: 4px;
+  }
+  .login-logo span { color: #fff; }
+  .login-sub {
+    text-align: center; font-size: 0.78rem; color: rgba(255,255,255,0.4);
+    margin-bottom: 28px;
+  }
+  .login-err {
+    background: rgba(255,77,109,0.1);
+    border: 1px solid rgba(255,77,109,0.3);
+    color: #ff4d6d;
+    border-radius: 8px;
+    padding: 10px 13px;
+    font-size: 0.82rem;
+    margin-bottom: 14px;
+    display: none;
+  }
+  .login-err.visible { display: flex; align-items: center; gap: 8px; }
+  
+  .campo {
+    display: flex; flex-direction: column; gap: 5px; margin-bottom: 12px;
+  }
+  .campo label {
+    font-size: 0.7rem; font-weight: 700; color: #4fc3f7;
+    text-transform: uppercase; letter-spacing: 0.07em;
+  }
+  .campo input {
+    background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 8px;
+    color: #fff;
+    font-size: 0.92rem;
+    padding: 10px 12px;
+    outline: none;
+    width: 100%;
+  }
+  .campo input:focus {
+    border-color: #4fc3f7;
+    background: rgba(79,195,247,0.05);
+  }
+  
+  .btn-login {
+    width: 100%; padding: 14px; border-radius: 10px;
+    background: linear-gradient(135deg, #4fc3f7, #00b4d8);
+    color: #0a0a1a;
+    font-family: 'DM Sans', sans-serif;
+    font-size: 0.95rem; font-weight: 700;
+    border: none; cursor: pointer;
+    transition: all 0.2s; margin-top: 6px; min-height: 50px;
+    display: flex; align-items: center; justify-content: center; gap: 8px;
+  }
+  .btn-login:hover:not(:disabled) {
+    box-shadow: 0 8px 24px rgba(79,195,247,0.35);
+  }
+  .btn-login:disabled { opacity: 0.5; cursor: not-allowed; }
+  .login-footer {
+    text-align: center; font-size: 0.72rem;
+    color: rgba(255,255,255,0.3); margin-top: 18px;
+  }
+  
+  /* ============================================================
+     SPINNER
+     ============================================================ */
+  .spinner {
+    width: 20px; height: 20px;
+    border: 2px solid rgba(255,255,255,0.15);
+    border-top-color: #4fc3f7;
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+    margin: 0 auto;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  
+  /* ============================================================
+     HEADER (después del login)
+     ============================================================ */
+  #app-principal {
+    display: none;
+    position: fixed; inset: 0;
+    z-index: 0;
+  }
+  #app-principal.visible { display: block; }
+  
+  #header {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 1000;
+    background: rgba(10, 10, 26, 0.92);
+    backdrop-filter: blur(12px);
+    padding: 10px 16px;
+    display: flex; justify-content: space-between; align-items: center;
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+    min-height: 56px;
+  }
+  #header h1 {
+    font-size: 16px; font-weight: 700;
+  }
+  #header h1 i { color: #4fc3f7; margin-right: 6px; }
+  .chip-user {
+    font-size: 0.7rem; font-weight: 700;
+    padding: 4px 12px; border-radius: 20px;
+    background: rgba(79,195,247,0.1);
+    border: 1px solid rgba(79,195,247,0.2);
+    color: #4fc3f7;
+    cursor: pointer;
+    transition: all 0.2s;
+    white-space: nowrap;
+  }
+  .chip-user:hover {
+    background: rgba(255,77,109,0.15);
+    border-color: rgba(255,77,109,0.3);
+    color: #ff4d6d;
+  }
+  
+  /* ============================================================
+     MAPA
+     ============================================================ */
+  #map {
+    height: 100vh; width: 100vw;
+    position: fixed; top: 0; left: 0;
+    z-index: 0;
+  }
+  
+  /* ============================================================
+     VELOCÍMETRO
+     ============================================================ */
+  #velocimetro {
+    position: fixed; bottom: 100px; left: 16px; z-index: 1000;
+    background: rgba(10, 10, 26, 0.88);
+    backdrop-filter: blur(12px);
+    border-radius: 50%;
+    width: 72px; height: 72px;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    border: 3px solid rgba(79,195,247,0.3);
+    box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+    transition: border-color 0.5s;
+  }
+  #velocimetro .valor {
+    font-size: 22px; font-weight: 700; line-height: 1;
+    color: #4fc3f7;
+  }
+  #velocimetro .unidad {
+    font-size: 10px; color: rgba(255,255,255,0.4);
+    margin-top: 2px;
+  }
+  #velocimetro .estado {
+    font-size: 8px; margin-top: 1px;
+    padding: 2px 8px; border-radius: 10px;
+    background: rgba(79,195,247,0.15);
+    color: #4fc3f7;
+    text-transform: uppercase;
+  }
+  
+  /* ============================================================
+     TOAST
+     ============================================================ */
+  .toast-container {
+    position: fixed; bottom: 20px; right: 12px; z-index: 9999;
+    display: flex; flex-direction: column; gap: 7px;
+    max-width: calc(100vw - 24px);
+  }
+  .toast {
+    background: rgba(26,26,46,0.92);
+    border-radius: 10px; padding: 10px 14px;
+    display: flex; align-items: center; gap: 8px;
+    font-size: 0.82rem;
+    animation: slideIn 0.28s ease;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+    border-left: 3px solid #4fc3f7;
+  }
+  .toast.err { border-left-color: #ff4d6d; }
+  @keyframes slideIn {
+    from { opacity: 0; transform: translateX(40px); }
+    to { opacity: 1; transform: translateX(0); }
+  }
+  
+  /* ============================================================
+     BOTÓN CHAT FLOTANTE
+     ============================================================ */
+  #btn-chat {
+    position: fixed; bottom: 100px; right: 16px; z-index: 1000;
+    background: #4fc3f7; color: #0a0a1a;
+    border: none; border-radius: 50%;
+    width: 60px; height: 60px;
+    font-size: 24px;
+    box-shadow: 0 4px 20px rgba(79,195,247,0.4);
+    cursor: pointer;
+    transition: all 0.3s;
+  }
+  #btn-chat:active { transform: scale(0.9); }
+</style>
+</head>
+<body>
+
+<!-- ============================================================
+   LOGIN OVERLAY
+   ============================================================ -->
+<div id="login-overlay">
+  <div class="login-box">
+    <div class="login-logo">🚛 Flotilla<span>Pro</span></div>
+    <div class="login-sub">🔐 Acceso al sistema de monitoreo GPS</div>
+    <div class="login-err" id="login-err">
+      <span>❌</span><span id="login-err-msg">Usuario o contraseña incorrectos</span>
+    </div>
+    <div class="campo">
+      <label>Usuario o Email</label>
+      <input type="text" id="login-usuario" placeholder="admin@flotilla.com"
+        autocomplete="username" autocapitalize="none" spellcheck="false"
+        onkeydown="if(event.key==='Enter') document.getElementById('login-pass').focus()">
+    </div>
+    <div class="campo">
+      <label>Contraseña</label>
+      <input type="password" id="login-pass" placeholder="••••••••"
+        autocomplete="current-password"
+        onkeydown="if(event.key==='Enter') doLogin()">
+    </div>
+    <button class="btn-login" id="btn-login" onclick="doLogin()">🔓 Ingresar</button>
+    <div class="login-footer">Flotilla Pro · Monitoreo GPS</div>
+  </div>
+</div>
+
+<!-- ============================================================
+   APP PRINCIPAL (después del login)
+   ============================================================ -->
+<div id="app-principal">
+  <!-- Mapa -->
+  <div id="map"></div>
+  
+  <!-- Header -->
+  <div id="header">
+    <h1><i class="fas fa-truck"></i> Flotilla Pro</h1>
+    <span class="chip-user" id="chip-usuario" onclick="confirmarCerrarSesion()">👤 —</span>
+  </div>
+  
+  <!-- Velocímetro -->
+  <div id="velocimetro">
+    <span class="valor" id="vel-valor">0</span>
+    <span class="unidad">km/h</span>
+    <span class="estado" id="vel-estado">Detenido</span>
+  </div>
+  
+  <!-- Botón Chat (placeholder) -->
+  <button id="btn-chat" onclick="toast('💬 Chat en desarrollo', 'ok')">
+    <i class="fas fa-comment"></i>
+  </button>
+</div>
+
+<!-- Toast Container -->
+<div class="toast-container" id="toast-container"></div>
+
+<script>
+// ============================================================
+// CONFIGURACIÓN
+// ============================================================
+const GAS_URL = 'https://script.google.com/macros/s/AKfycbxN9_j4DAE0I6jw1S__8B7Amjjw8bFSFTkXSPNEe80JQE4B6X2r_RTLebLGhfr93o6PFg/exec';
+const SESSION_KEY = 'flotilla_pro_session';
+
+// ============================================================
+// SISTEMA DE LOGIN (100% replicado de Lotes San Pedro)
+// ============================================================
+
+function getSession() {
+  try { return JSON.parse(sessionStorage.getItem(SESSION_KEY)); } 
+  catch(e) { return null; }
+}
+
+function setSession(data) {
+  sessionStorage.setItem(SESSION_KEY, JSON.stringify(data));
+}
+
+function clearSession() {
+  sessionStorage.removeItem(SESSION_KEY);
+}
+
+function mostrarLoginError(msg) {
+  document.getElementById('login-err-msg').textContent = msg;
+  document.getElementById('login-err').classList.add('visible');
+}
+
+function ocultarLoginError() {
+  document.getElementById('login-err').classList.remove('visible');
+}
+
+async function doLogin() {
+  const usuario = document.getElementById('login-usuario').value.trim();
+  const pass = document.getElementById('login-pass').value;
+  
+  if (!usuario || !pass) {
+    mostrarLoginError('Completa usuario y contraseña');
+    return;
+  }
+  
+  ocultarLoginError();
+  const btn = document.getElementById('btn-login');
+  btn.disabled = true;
+  btn.innerHTML = '<div class="spinner" style="width:18px;height:18px;"></div> Verificando...';
+  
+  try {
+    // 🔥 MISMO FORMATO que Lotes San Pedro
+    const url = GAS_URL + '?tipo=login&usuario=' + encodeURIComponent(usuario) + '&password=' + encodeURIComponent(pass);
+    const r = await fetch(url, { redirect: 'follow' });
+    const d = await r.json();
+    
+    if (d && d.success && d.data && d.data.autorizado) {
+      const sesion = {
+        usuario: d.data.usuario || usuario,
+        nombre: d.data.nombre || usuario,
+        rol: d.data.rol || 'conductor',
+        vehiculo: d.data.vehiculo || 'V-001',
+        ts: Date.now()
+      };
+      setSession(sesion);
+      aplicarSesion(sesion);
+      
+      // Ocultar login
+      document.getElementById('login-overlay').classList.add('oculto');
+      document.getElementById('app-principal').classList.add('visible');
+      
+      toast('👋 Bienvenido, ' + sesion.nombre, 'ok', 4000);
+      iniciarGPS();
+    } else {
+      mostrarLoginError((d && d.mensaje) || 'Usuario o contraseña incorrectos');
+    }
+  } catch (e) {
+    mostrarLoginError('Error de conexión. Revisa tu internet.');
+    console.error(e);
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '🔓 Ingresar';
+  }
+}
+
+function aplicarSesion(sesion) {
+  const chip = document.getElementById('chip-usuario');
+  if (chip) chip.textContent = '👤 ' + (sesion.nombre || sesion.usuario);
+}
+
+function confirmarCerrarSesion() {
+  const sesion = getSession();
+  if (confirm('¿Cerrar sesión de ' + (sesion?.nombre || 'usuario') + '?')) {
+    doLogout();
+  }
+}
+
+function doLogout() {
+  clearSession();
+  location.reload();
+}
+
+function checkAuth() {
+  const sesion = getSession();
+  if (sesion && sesion.ts) {
+    document.getElementById('login-overlay').classList.add('oculto');
+    document.getElementById('app-principal').classList.add('visible');
+    aplicarSesion(sesion);
+    iniciarGPS();
+    toast('🔁 Sesión recuperada', 'ok', 2000);
+  } else {
+    setTimeout(() => {
+      document.getElementById('login-usuario').focus();
+    }, 300);
+  }
+}
+
+// ============================================================
+// TOAST (igual que Lotes San Pedro)
+// ============================================================
+function toast(msg, tipo, dur) {
+  tipo = tipo || 'ok';
+  dur = dur || 3500;
+  const container = document.getElementById('toast-container');
+  const t = document.createElement('div');
+  t.className = 'toast ' + tipo;
+  t.innerHTML = '<span>' + (tipo === 'ok' ? '✅' : '❌') + '</span><span>' + msg + '</span>';
+  container.appendChild(t);
+  setTimeout(() => { t.style.opacity = '0'; }, dur - 400);
+  setTimeout(() => { t.remove(); }, dur);
+}
+
+// ============================================================
+// MAPA Y GPS (integrado con login)
+// ============================================================
+
+let map = null;
+let markerConductor = null;
+let watchId = null;
+
+function iniciarGPS() {
+  // Inicializar mapa
+  map = L.map('map').setView([19.4326, -99.1332], 13);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '© OpenStreetMap'
+  }).addTo(map);
+  
+  // Iniciar geolocalización
+  if (!navigator.geolocation) {
+    toast('❌ Tu dispositivo no soporta GPS', 'err');
+    return;
+  }
+  
+  watchId = navigator.geolocation.watchPosition(
+    (pos) => {
+      const lat = pos.coords.latitude;
+      const lng = pos.coords.longitude;
+      const speed = pos.coords.speed ? pos.coords.speed * 3.6 : 0;
+      
+      // Actualizar velocímetro
+      document.getElementById('vel-valor').textContent = Math.round(speed);
+      document.getElementById('vel-estado').textContent = speed > 5 ? 'Conduciendo' : 'Detenido';
+      
+      // Actualizar marcador
+      if (!markerConductor) {
+        const icon = L.divIcon({
+          className: 'mi-marcador',
+          html: `<div style="background:#4fc3f7; width:18px; height:18px; border-radius:50%; border:3px solid #fff; box-shadow:0 2px 12px rgba(79,195,247,0.5);"></div>`,
+          iconSize: [24, 24],
+          iconAnchor: [12, 12]
+        });
+        markerConductor = L.marker([lat, lng], { icon }).addTo(map);
+      } else {
+        markerConductor.setLatLng([lat, lng]);
+      }
+      map.panTo([lat, lng], { animate: true, duration: 1 });
+      
+      // Enviar ubicación al servidor
+      enviarUbicacion(lat, lng, speed);
+    },
+    (error) => {
+      console.error('GPS error:', error);
+      toast('⚠️ Error GPS: ' + error.message, 'err');
+    },
+    { enableHighAccuracy: true, timeout: 10000, maximumAge: 5000 }
+  );
+  
+  toast('📡 GPS activo', 'ok');
+}
+
+async function enviarUbicacion(lat, lng, speed) {
+  try {
+    const sesion = getSession();
+    await fetch(GAS_URL, {
+      method: 'POST',
+      body: JSON.stringify({
+        action: 'ubicacion',
+        id: sesion?.vehiculo || 'V-001',
+        lat: lat,
+        lng: lng,
+        velocidad: speed,
+        direccion: 'N/A'
+      })
+    });
+  } catch (e) {
+    // Silencioso para no saturar
+  }
+}
+
+// ============================================================
+// INICIO
+// ============================================================
+window.addEventListener('load', checkAuth);
+console.log('✅ Flotilla Pro cargado');
+</script>
+</body>
+</html>
