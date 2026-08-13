@@ -1,0 +1,1088 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>🚛 Flotilla GPS Pro</title>
+  
+  <!-- Leaflet -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  
+  <!-- Font Awesome -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+  
+  <style>
+    /* ============================================================
+       RESET Y BASE MOBILE FIRST
+       ============================================================ */
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #1a1a2e;
+      color: #fff;
+      overflow: hidden;
+      height: 100vh;
+      width: 100vw;
+      position: fixed;
+    }
+    
+    /* ============================================================
+       MAPA (fondo)
+       ============================================================ */
+    #map {
+      height: 100vh;
+      width: 100vw;
+      position: fixed;
+      top: 0;
+      left: 0;
+      z-index: 0;
+    }
+    
+    /* ============================================================
+       HEADER SUPERIOR
+       ============================================================ */
+    #header {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      z-index: 1000;
+      background: rgba(26, 26, 46, 0.92);
+      backdrop-filter: blur(12px);
+      padding: 10px 16px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 1px solid rgba(255,255,255,0.08);
+      min-height: 56px;
+    }
+    
+    #header h1 {
+      font-size: 16px;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+    }
+    
+    #header h1 i {
+      color: #4fc3f7;
+      margin-right: 6px;
+    }
+    
+    #header-actions {
+      display: flex;
+      gap: 12px;
+      align-items: center;
+    }
+    
+    #header-actions button {
+      background: rgba(255,255,255,0.08);
+      border: none;
+      color: #fff;
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      font-size: 16px;
+      cursor: pointer;
+      position: relative;
+      transition: all 0.2s;
+    }
+    
+    #header-actions button:active {
+      transform: scale(0.92);
+    }
+    
+    .badge-notificacion {
+      position: absolute;
+      top: -4px;
+      right: -4px;
+      background: #ef4444;
+      color: #fff;
+      font-size: 10px;
+      font-weight: 700;
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    
+    /* ============================================================
+       VELOCÍMETRO (flotante abajo izquierda)
+       ============================================================ */
+    #velocimetro {
+      position: fixed;
+      bottom: 100px;
+      left: 16px;
+      z-index: 1000;
+      background: rgba(26, 26, 46, 0.88);
+      backdrop-filter: blur(12px);
+      border-radius: 50%;
+      width: 72px;
+      height: 72px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      border: 3px solid rgba(79, 195, 247, 0.3);
+      box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+      transition: border-color 0.5s;
+    }
+    
+    #velocimetro .vel-valor {
+      font-size: 22px;
+      font-weight: 700;
+      line-height: 1;
+      color: #4fc3f7;
+    }
+    
+    #velocimetro .vel-unidad {
+      font-size: 10px;
+      color: rgba(255,255,255,0.5);
+      margin-top: 2px;
+    }
+    
+    #velocimetro .vel-estado {
+      font-size: 8px;
+      margin-top: 1px;
+      padding: 2px 8px;
+      border-radius: 10px;
+      background: rgba(79, 195, 247, 0.2);
+      color: #4fc3f7;
+      text-transform: uppercase;
+    }
+    
+    /* ============================================================
+       BOTÓN DE CHAT (flotante abajo derecha)
+       ============================================================ */
+    #btn-chat-flotante {
+      position: fixed;
+      bottom: 100px;
+      right: 16px;
+      z-index: 1000;
+      background: #4fc3f7;
+      color: #1a1a2e;
+      border: none;
+      border-radius: 50%;
+      width: 60px;
+      height: 60px;
+      font-size: 24px;
+      box-shadow: 0 4px 20px rgba(79, 195, 247, 0.4);
+      cursor: pointer;
+      transition: all 0.3s;
+    }
+    
+    #btn-chat-flotante:active {
+      transform: scale(0.9);
+    }
+    
+    #btn-chat-flotante .badge-chat {
+      position: absolute;
+      top: -4px;
+      right: -4px;
+      background: #ef4444;
+      color: #fff;
+      font-size: 11px;
+      font-weight: 700;
+      width: 22px;
+      height: 22px;
+      border-radius: 50%;
+      display: none;
+      align-items: center;
+      justify-content: center;
+    }
+    
+    /* ============================================================
+       PANEL DE CHAT (flotante)
+       ============================================================ */
+    #chat-panel {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      z-index: 2000;
+      height: 70vh;
+      background: #16213e;
+      border-radius: 20px 20px 0 0;
+      transform: translateY(100%);
+      transition: transform 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+      display: flex;
+      flex-direction: column;
+      box-shadow: 0 -8px 30px rgba(0,0,0,0.6);
+    }
+    
+    #chat-panel.open {
+      transform: translateY(0);
+    }
+    
+    #chat-header {
+      padding: 16px 20px;
+      border-bottom: 1px solid rgba(255,255,255,0.06);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-shrink: 0;
+    }
+    
+    #chat-header .title {
+      font-size: 16px;
+      font-weight: 600;
+    }
+    
+    #chat-header .title i {
+      color: #4fc3f7;
+      margin-right: 8px;
+    }
+    
+    #chat-header .close-btn {
+      background: none;
+      border: none;
+      color: rgba(255,255,255,0.5);
+      font-size: 20px;
+      cursor: pointer;
+      padding: 4px 8px;
+    }
+    
+    #chat-mensajes {
+      flex: 1;
+      overflow-y: auto;
+      padding: 12px 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    
+    .msg {
+      max-width: 85%;
+      padding: 10px 14px;
+      border-radius: 16px;
+      font-size: 14px;
+      line-height: 1.4;
+      animation: fadeIn 0.2s;
+    }
+    
+    .msg-propio {
+      background: #4fc3f7;
+      color: #1a1a2e;
+      align-self: flex-end;
+      border-bottom-right-radius: 4px;
+    }
+    
+    .msg-otro {
+      background: rgba(255,255,255,0.08);
+      color: #fff;
+      align-self: flex-start;
+      border-bottom-left-radius: 4px;
+    }
+    
+    .msg-sistema {
+      background: rgba(255, 193, 7, 0.15);
+      color: #ffd54f;
+      align-self: center;
+      font-size: 12px;
+      padding: 6px 14px;
+      border-radius: 20px;
+    }
+    
+    .msg .msg-usuario {
+      font-size: 11px;
+      font-weight: 600;
+      opacity: 0.7;
+      margin-bottom: 2px;
+    }
+    
+    .msg .msg-tiempo {
+      font-size: 10px;
+      opacity: 0.5;
+      margin-top: 4px;
+      display: block;
+    }
+    
+    .msg-bloqueado {
+      background: rgba(239, 68, 68, 0.15);
+      color: #ef4444;
+      align-self: center;
+      font-size: 12px;
+      padding: 8px 16px;
+      border-radius: 20px;
+      border: 1px solid rgba(239, 68, 68, 0.2);
+    }
+    
+    #chat-input-area {
+      padding: 12px 16px 16px;
+      border-top: 1px solid rgba(255,255,255,0.06);
+      display: flex;
+      gap: 8px;
+      flex-shrink: 0;
+      align-items: center;
+    }
+    
+    #chat-input-area select {
+      background: rgba(255,255,255,0.06);
+      color: #fff;
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 20px;
+      padding: 8px 12px;
+      font-size: 12px;
+      flex-shrink: 0;
+      max-width: 100px;
+    }
+    
+    #chat-input-area input {
+      flex: 1;
+      background: rgba(255,255,255,0.06);
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 20px;
+      padding: 10px 16px;
+      color: #fff;
+      font-size: 14px;
+      outline: none;
+      min-width: 0;
+    }
+    
+    #chat-input-area input:focus {
+      border-color: #4fc3f7;
+    }
+    
+    #chat-input-area input:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
+    
+    #chat-input-area button {
+      background: #4fc3f7;
+      border: none;
+      border-radius: 50%;
+      width: 44px;
+      height: 44px;
+      color: #1a1a2e;
+      font-size: 18px;
+      cursor: pointer;
+      flex-shrink: 0;
+      transition: all 0.2s;
+    }
+    
+    #chat-input-area button:active {
+      transform: scale(0.92);
+    }
+    
+    /* ============================================================
+       INDICADOR DE MOVIMIENTO (BLOQUEO DE CHAT)
+       ============================================================ */
+    #movimiento-indicador {
+      position: fixed;
+      top: 70px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 1500;
+      background: rgba(239, 68, 68, 0.9);
+      color: #fff;
+      padding: 6px 20px;
+      border-radius: 20px;
+      font-size: 12px;
+      font-weight: 600;
+      display: none;
+      backdrop-filter: blur(8px);
+      box-shadow: 0 4px 15px rgba(239, 68, 68, 0.3);
+    }
+    
+    #movimiento-indicador.visible {
+      display: block;
+      animation: slideDown 0.3s;
+    }
+    
+    /* ============================================================
+       NOTIFICACIONES (toast)
+       ============================================================ */
+    #toast-container {
+      position: fixed;
+      top: 80px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 3000;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      align-items: center;
+      pointer-events: none;
+      width: 90%;
+      max-width: 400px;
+    }
+    
+    .toast {
+      background: rgba(26, 26, 46, 0.92);
+      backdrop-filter: blur(12px);
+      color: #fff;
+      padding: 12px 20px;
+      border-radius: 12px;
+      font-size: 13px;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+      border-left: 4px solid #4fc3f7;
+      width: 100%;
+      animation: slideDown 0.3s ease;
+      pointer-events: auto;
+    }
+    
+    .toast-alerta {
+      border-left-color: #ef4444;
+    }
+    
+    /* ============================================================
+       BARRA DE DIRECCIONES (cada 5 minutos)
+       ============================================================ */
+    #direccion-bar {
+      position: fixed;
+      bottom: 180px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 1000;
+      background: rgba(26, 26, 46, 0.85);
+      backdrop-filter: blur(12px);
+      padding: 8px 20px;
+      border-radius: 30px;
+      display: none;
+      align-items: center;
+      gap: 12px;
+      font-size: 12px;
+      border: 1px solid rgba(255,255,255,0.06);
+      white-space: nowrap;
+    }
+    
+    #direccion-bar.visible {
+      display: flex;
+      animation: slideUp 0.4s;
+    }
+    
+    #direccion-bar i {
+      color: #4fc3f7;
+      font-size: 14px;
+    }
+    
+    #direccion-bar .dir-texto {
+      color: #fff;
+      font-weight: 500;
+    }
+    
+    #direccion-bar .dir-tiempo {
+      color: rgba(255,255,255,0.4);
+      font-size: 10px;
+    }
+    
+    /* ============================================================
+       ANIMACIONES
+       ============================================================ */
+    @keyframes fadeIn {
+      from { opacity: 0; transform: scale(0.95); }
+      to { opacity: 1; transform: scale(1); }
+    }
+    
+    @keyframes slideDown {
+      from { opacity: 0; transform: translateY(-20px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    
+    @keyframes slideUp {
+      from { opacity: 0; transform: translate(-50%, 20px); }
+      to { opacity: 1; transform: translate(-50%, 0); }
+    }
+    
+    /* ============================================================
+       SCROLLBAR
+       ============================================================ */
+    ::-webkit-scrollbar {
+      width: 4px;
+    }
+    ::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: rgba(255,255,255,0.15);
+      border-radius: 10px;
+    }
+  </style>
+</head>
+<body>
+
+<!-- MAPA -->
+<div id="map"></div>
+
+<!-- HEADER -->
+<div id="header">
+  <h1><i class="fas fa-truck"></i> Flotilla Pro</h1>
+  <div id="header-actions">
+    <button id="btn-notificaciones" title="Notificaciones">
+      <i class="fas fa-bell"></i>
+      <span class="badge-notificacion" id="notif-badge" style="display:none;">0</span>
+    </button>
+    <button id="btn-toggle-chat" title="Abrir chat">
+      <i class="fas fa-comment"></i>
+    </button>
+  </div>
+</div>
+
+<!-- VELOCÍMETRO -->
+<div id="velocimetro">
+  <span class="vel-valor" id="vel-valor">0</span>
+  <span class="vel-unidad">km/h</span>
+  <span class="vel-estado" id="vel-estado">Detenido</span>
+</div>
+
+<!-- BARRA DE DIRECCIÓN -->
+<div id="direccion-bar">
+  <i class="fas fa-route"></i>
+  <span class="dir-texto" id="dir-texto">Sin dirección</span>
+  <span class="dir-tiempo" id="dir-tiempo">--:--</span>
+</div>
+
+<!-- INDICADOR DE MOVIMIENTO (bloqueo) -->
+<div id="movimiento-indicador">
+  <i class="fas fa-exclamation-triangle"></i> ⛔ Conduciendo - Chat bloqueado
+</div>
+
+<!-- BOTÓN CHAT FLOTANTE -->
+<button id="btn-chat-flotante">
+  <i class="fas fa-comment"></i>
+  <span class="badge-chat" id="chat-flotante-badge">0</span>
+</button>
+
+<!-- PANEL DE CHAT -->
+<div id="chat-panel">
+  <div id="chat-header">
+    <span class="title"><i class="fas fa-comments"></i> Chat Global</span>
+    <button class="close-btn" id="chat-close"><i class="fas fa-times"></i></button>
+  </div>
+  <div id="chat-mensajes">
+    <div class="msg msg-sistema">💬 Conectando al chat...</div>
+  </div>
+  <div id="chat-input-area">
+    <select id="chat-usuario">
+      <option value="Dispatcher">👔 Dispatcher</option>
+    </select>
+    <input type="text" id="chat-input" placeholder="Escribe un mensaje..." />
+    <button id="chat-enviar"><i class="fas fa-paper-plane"></i></button>
+  </div>
+</div>
+
+<!-- TOAST CONTAINER -->
+<div id="toast-container"></div>
+
+<script>
+  // ============================================================
+  // CONFIGURACIÓN
+  // ============================================================
+  const API_URL = 'https://script.google.com/macros/s/TU_ID/exec'; // <--- CAMBIA ESTO
+  
+  // ============================================================
+  // ESTADO LOCAL (Local Storage)
+  // ============================================================
+  const LS_KEY = 'flotilla_pro_data';
+  
+  let state = {
+    vehiculoId: 'V-001',
+    ultimaUbicacion: null,
+    enMovimiento: false,
+    chatAbierto: false,
+    notificaciones: [],
+    mensajesNoLeidos: 0
+  };
+  
+  // Cargar estado desde Local Storage
+  function loadState() {
+    try {
+      const saved = localStorage.getItem(LS_KEY);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        state = { ...state, ...parsed };
+      }
+    } catch (e) { console.warn('Error loading state:', e); }
+  }
+  
+  function saveState() {
+    try {
+      localStorage.setItem(LS_KEY, JSON.stringify(state));
+    } catch (e) { console.warn('Error saving state:', e); }
+  }
+  
+  loadState();
+  
+  // ============================================================
+  // MAPA
+  // ============================================================
+  const map = L.map('map', {
+    center: [19.4326, -99.1332],
+    zoom: 13,
+    zoomControl: false
+  });
+  
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '© OpenStreetMap'
+  }).addTo(map);
+  
+  // Control de zoom móvil
+  L.control.zoom({ position: 'bottomright' }).addTo(map);
+  
+  let markers = {};
+  let markerConductor = null;
+  let rutaPolyline = null;
+  let historialRuta = [];
+  
+  // ============================================================
+  // GEOLOCALIZACIÓN
+  // ============================================================
+  let watchId = null;
+  let ultimoRegistroRuta = null;
+  
+  function iniciarGPS() {
+    if (!navigator.geolocation) {
+      mostrarToast('❌ Tu dispositivo no soporta GPS', 'alerta');
+      return;
+    }
+    
+    watchId = navigator.geolocation.watchPosition(
+      (pos) => {
+        const lat = pos.coords.latitude;
+        const lng = pos.coords.longitude;
+        const speed = pos.coords.speed ? pos.coords.speed * 3.6 : 0; // m/s a km/h
+        const heading = pos.coords.heading || 0;
+        
+        actualizarPosicion(lat, lng, speed, heading);
+      },
+      (error) => {
+        console.error('GPS error:', error);
+        mostrarToast('⚠️ Error GPS: ' + error.message, 'alerta');
+      },
+      {
+        enableHighAccuracy: true,
+        timeout: 10000,
+        maximumAge: 5000
+      }
+    );
+  }
+  
+  // ============================================================
+  // ACTUALIZAR POSICIÓN
+  // ============================================================
+  let ultimoEnvio = 0;
+  const INTERVALO_ENVIO = 3000; // 3 segundos
+  
+  function actualizarPosicion(lat, lng, speed, heading) {
+    // Actualizar velocímetro
+    const vel = Math.round(speed);
+    document.getElementById('vel-valor').textContent = vel;
+    
+    const estado = speed > 5 ? 'Conduciendo' : 'Detenido';
+    document.getElementById('vel-estado').textContent = estado;
+    document.getElementById('vel-estado').style.color = speed > 5 ? '#4fc3f7' : '#aaa';
+    
+    // Color del velocímetro
+    const velBox = document.getElementById('velocimetro');
+    velBox.style.borderColor = speed > 5 ? 'rgba(79, 195, 247, 0.6)' : 'rgba(255,255,255,0.15)';
+    
+    // Detectar movimiento para bloquear chat
+    const estabaEnMovimiento = state.enMovimiento;
+    state.enMovimiento = speed > 5;
+    
+    if (state.enMovimiento) {
+      document.getElementById('movimiento-indicador').classList.add('visible');
+      document.getElementById('chat-input').disabled = true;
+      document.getElementById('chat-enviar').disabled = true;
+    } else {
+      document.getElementById('movimiento-indicador').classList.remove('visible');
+      document.getElementById('chat-input').disabled = false;
+      document.getElementById('chat-enviar').disabled = false;
+    }
+    
+    // Guardar en estado
+    state.ultimaUbicacion = { lat, lng, speed, heading };
+    saveState();
+    
+    // Actualizar marcador del conductor
+    if (!markerConductor) {
+      const icon = L.divIcon({
+        className: 'mi-marcador',
+        html: `<div style="background:#4fc3f7; width:18px; height:18px; border-radius:50%; border:3px solid #fff; box-shadow:0 2px 12px rgba(79,195,247,0.5);"></div>`,
+        iconSize: [24, 24],
+        iconAnchor: [12, 12]
+      });
+      markerConductor = L.marker([lat, lng], { icon }).addTo(map);
+    } else {
+      markerConductor.setLatLng([lat, lng]);
+    }
+    
+    // Centrar mapa en el conductor (si no está arrastrando)
+    map.panTo([lat, lng], { animate: true, duration: 1 });
+    
+    // Guardar historial de ruta
+    historialRuta.push([lat, lng]);
+    if (historialRuta.length > 100) historialRuta.shift();
+    
+    // Dibujar ruta
+    if (rutaPolyline) {
+      rutaPolyline.setLatLngs(historialRuta);
+    } else if (historialRuta.length > 1) {
+      rutaPolyline = L.polyline(historialRuta, {
+        color: '#4fc3f7',
+        weight: 3,
+        opacity: 0.6,
+        dashArray: '5, 10'
+      }).addTo(map);
+    }
+    
+    // Enviar a servidor cada INTERVALO_ENVIO
+    const ahora = Date.now();
+    if (ahora - ultimoEnvio > INTERVALO_ENVIO) {
+      ultimoEnvio = ahora;
+      enviarUbicacion(lat, lng, speed, heading);
+    }
+    
+    // Mostrar dirección (actualizar cada 5 minutos)
+    mostrarDireccion(lat, lng);
+  }
+  
+  // ============================================================
+  // ENVIAR UBICACIÓN A APPS SCRIPT
+  // ============================================================
+  async function enviarUbicacion(lat, lng, speed, heading) {
+    try {
+      const response = await fetch(API_URL, {
+        method: 'POST',
+        body: JSON.stringify({
+          action: 'ubicacion',
+          id: state.vehiculoId,
+          lat: lat,
+          lng: lng,
+          velocidad: speed,
+          direccion: obtenerNombreDireccion(heading)
+        })
+      });
+      
+      const result = await response.json();
+      if (!result.success) {
+        console.warn('Error al enviar ubicación:', result.message);
+      }
+    } catch (error) {
+      console.error('Error enviando ubicación:', error);
+    }
+  }
+  
+  // ============================================================
+  // OBTENER NOMBRE DE DIRECCIÓN (heading a texto)
+  // ============================================================
+  function obtenerNombreDireccion(heading) {
+    const direcciones = ['Norte', 'Noreste', 'Este', 'Sureste', 'Sur', 'Suroeste', 'Oeste', 'Noroeste'];
+    const idx = Math.round(heading / 45) % 8;
+    return direcciones[idx] || '--';
+  }
+  
+  // ============================================================
+  // MOSTRAR DIRECCIÓN (cada 5 minutos)
+  // ============================================================
+  let ultimaDireccionMostrada = null;
+  
+  function mostrarDireccion(lat, lng) {
+    const ahora = Date.now();
+    if (!ultimaDireccionMostrada || (ahora - ultimaDireccionMostrada) > 300000) { // 5 minutos
+      ultimaDireccionMostrada = ahora;
+      
+      // Obtener dirección real (reverse geocoding)
+      fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json&zoom=16`)
+        .then(res => res.json())
+        .then(data => {
+          const direccion = data.display_name || 'Ubicación desconocida';
+          const bar = document.getElementById('direccion-bar');
+          document.getElementById('dir-texto').textContent = direccion.split(',').slice(0, 3).join(', ');
+          document.getElementById('dir-tiempo').textContent = new Date().toLocaleTimeString();
+          bar.classList.add('visible');
+          
+          // Ocultar después de 15 segundos
+          clearTimeout(window.dirTimeout);
+          window.dirTimeout = setTimeout(() => {
+            bar.classList.remove('visible');
+          }, 15000);
+        })
+        .catch(() => {
+          // Fallback
+          document.getElementById('dir-texto').textContent = '📍 Ubicación actual';
+          document.getElementById('dir-tiempo').textContent = new Date().toLocaleTimeString();
+        });
+    }
+  }
+  
+  // ============================================================
+  // CHAT
+  // ============================================================
+  let chatMensajes = [];
+  let chatInterval = null;
+  let mensajesNoLeidos = 0;
+  
+  async function cargarChat() {
+    try {
+      const response = await fetch(`${API_URL}?action=chat`);
+      const data = await response.json();
+      chatMensajes = data;
+      renderChat();
+    } catch (error) {
+      console.error('Error cargando chat:', error);
+    }
+  }
+  
+  function renderChat() {
+    const container = document.getElementById('chat-mensajes');
+    const usuarioActual = document.getElementById('chat-usuario').value;
+    
+    if (!chatMensajes || chatMensajes.length === 0) {
+      container.innerHTML = `<div class="msg msg-sistema">💬 Sin mensajes aún</div>`;
+      return;
+    }
+    
+    let html = '';
+    let noLeidos = 0;
+    
+    chatMensajes.forEach((msg) => {
+      const esPropio = msg.usuario === usuarioActual;
+      const esSistema = msg.tipo === 'sistema';
+      const esBloqueado = msg.mensaje.includes('⛔');
+      
+      let clase = 'msg-otro';
+      if (esPropio) clase = 'msg-propio';
+      if (esSistema) clase = 'msg-sistema';
+      if (esBloqueado) clase = 'msg-bloqueado';
+      
+      // Contar no leídos
+      if (!esPropio && msg.leido !== 'TRUE' && !esSistema) {
+        noLeidos++;
+      }
+      
+      const vehiculoInfo = msg.vehiculo && msg.vehiculo !== '-' ? ` 🚛${msg.vehiculo}` : '';
+      const tiempo = msg.timestamp ? new Date(msg.timestamp).toLocaleTimeString() : '';
+      
+      html += `
+        <div class="msg ${clase}">
+          ${!esPropio && !esSistema ? `<div class="msg-usuario">${msg.usuario}${vehiculoInfo}</div>` : ''}
+          ${msg.mensaje}
+          <span class="msg-tiempo">${tiempo}</span>
+        </div>
+      `;
+    });
+    
+    container.innerHTML = html;
+    container.scrollTop = container.scrollHeight;
+    
+    // Actualizar badge
+    mensajesNoLeidos = noLeidos;
+    const badge = document.getElementById('chat-flotante-badge');
+    const badgeHeader = document.getElementById('notif-badge');
+    
+    if (noLeidos > 0) {
+      badge.style.display = 'flex';
+      badge.textContent = noLeidos;
+      badgeHeader.style.display = 'flex';
+      badgeHeader.textContent = noLeidos;
+    } else {
+      badge.style.display = 'none';
+      badgeHeader.style.display = 'none';
+    }
+    
+    // Notificación de nuevos mensajes (solo si el chat está cerrado)
+    if (noLeidos > 0 && !state.chatAbierto) {
+      // Reproducir sonido o vibrar
+      if (navigator.vibrate) navigator.vibrate(100);
+    }
+  }
+  
+  async function enviarMensaje() {
+    const input = document.getElementById('chat-input');
+    const mensaje = input.value.trim();
+    const usuario = document.getElementById('chat-usuario').value;
+    
+    if (!mensaje) return;
+    
+    // Verificar movimiento
+    if (state.enMovimiento) {
+      mostrarToast('⛔ No puedes enviar mensajes mientras conduces', 'alerta');
+      return;
+    }
+    
+    try {
+      const response = await fetch(API_URL, {
+        method: 'POST',
+        body: JSON.stringify({
+          action: 'mensaje',
+          usuario: usuario,
+          vehiculo: usuario === 'Dispatcher' ? '-' : state.vehiculoId,
+          mensaje: mensaje
+        })
+      });
+      
+      const result = await response.json();
+      if (result.success) {
+        input.value = '';
+        cargarChat();
+      } else {
+        mostrarToast('❌ ' + result.message, 'alerta');
+      }
+    } catch (error) {
+      console.error('Error enviando mensaje:', error);
+      mostrarToast('❌ Error al enviar mensaje', 'alerta');
+    }
+  }
+  
+  // ============================================================
+  // TOAST / NOTIFICACIONES
+  // ============================================================
+  function mostrarToast(mensaje, tipo = 'info') {
+    const container = document.getElementById('toast-container');
+    const toast = document.createElement('div');
+    toast.className = `toast ${tipo === 'alerta' ? 'toast-alerta' : ''}`;
+    toast.textContent = mensaje;
+    container.appendChild(toast);
+    
+    setTimeout(() => {
+      toast.style.opacity = '0';
+      toast.style.transition = 'opacity 0.3s';
+      setTimeout(() => toast.remove(), 400);
+    }, 4000);
+  }
+  
+  // ============================================================
+  // CONTROL DE CHAT (abrir/cerrar)
+  // ============================================================
+  function toggleChat() {
+    state.chatAbierto = !state.chatAbierto;
+    const panel = document.getElementById('chat-panel');
+    panel.classList.toggle('open', state.chatAbierto);
+    saveState();
+    
+    if (state.chatAbierto) {
+      cargarChat();
+    }
+  }
+  
+  // ============================================================
+  // CARGAR VEHÍCULOS EN SELECTOR
+  // ============================================================
+  async function cargarVehiculos() {
+    try {
+      const response = await fetch(API_URL);
+      const data = await response.json();
+      const select = document.getElementById('chat-usuario');
+      
+      // Limpiar opciones excepto Dispatcher
+      select.innerHTML = '<option value="Dispatcher">👔 Dispatcher</option>';
+      
+      data.forEach(v => {
+        const option = document.createElement('option');
+        option.value = v.id;
+        option.textContent = `🚛 ${v.id} - ${v.conductor || 'Sin conductor'}`;
+        select.appendChild(option);
+      });
+      
+      // Seleccionar el vehículo guardado
+      if (state.vehiculoId) {
+        select.value = state.vehiculoId;
+      }
+    } catch (error) {
+      console.error('Error cargando vehículos:', error);
+    }
+  }
+  
+  // ============================================================
+  // ACTUALIZAR FLOTILLA EN EL MAPA
+  // ============================================================
+  async function actualizarFlotilla() {
+    try {
+      const response = await fetch(API_URL);
+      const data = await response.json();
+      
+      data.forEach(v => {
+        const id = v.id;
+        const lat = parseFloat(v.lat);
+        const lng = parseFloat(v.lng);
+        const estado = v.estado || 'activo';
+        const conductor = v.conductor || 'Sin nombre';
+        const velocidad = v.velocidad || 0;
+        
+        let color = '#4ade80'; // activo - verde
+        if (estado === 'detenido') color = '#fbbf24'; // amarillo
+        if (estado === 'averia') color = '#ef4444'; // rojo
+        
+        if (markers[id]) {
+          // No actualizar nuestro propio marcador
+          if (id !== state.vehiculoId) {
+            markers[id].setLatLng([lat, lng]);
+            markers[id].setIcon(getIcon(color));
+          }
+        } else if (id !== state.vehiculoId) {
+          const marker = L.marker([lat, lng], { icon: getIcon(color) })
+            .addTo(map)
+            .bindPopup(`
+              <b>${id}</b><br>
+              👤 ${conductor}<br>
+              📌 ${estado}<br>
+              🏎️ ${Math.round(velocidad)} km/h
+            `);
+          markers[id] = marker;
+        }
+      });
+    } catch (error) {
+      console.error('Error actualizando flotilla:', error);
+    }
+  }
+  
+  function getIcon(color) {
+    return L.divIcon({
+      className: 'custom-icon',
+      html: `<div style="background:${color}; width:14px; height:14px; border-radius:50%; border:2px solid white; box-shadow:0 2px 8px rgba(0,0,0,0.3);"></div>`,
+      iconSize: [18, 18],
+      iconAnchor: [9, 9]
+    });
+  }
+  
+  // ============================================================
+  // EVENTOS
+  // ============================================================
+  document.getElementById('btn-chat-flotante').addEventListener('click', toggleChat);
+  document.getElementById('btn-toggle-chat').addEventListener('click', toggleChat);
+  document.getElementById('chat-close').addEventListener('click', toggleChat);
+  
+  document.getElementById('chat-enviar').addEventListener('click', enviarMensaje);
+  document.getElementById('chat-input').addEventListener('keypress', (e) => {
+    if (e.key === 'Enter') enviarMensaje();
+  });
+  
+  document.getElementById('chat-usuario').addEventListener('change', function() {
+    state.vehiculoId = this.value;
+    saveState();
+    cargarChat();
+  });
+  
+  // ============================================================
+  // INICIO
+  // ============================================================
+  async function init() {
+    // Cargar datos iniciales
+    await cargarVehiculos();
+    await actualizarFlotilla();
+    await cargarChat();
+    
+    // Iniciar GPS
+    iniciarGPS();
+    
+    // Intervalos
+    setInterval(actualizarFlotilla, 15000); // cada 15s
+    setInterval(cargarChat, 5000); // cada 5s
+    
+    mostrarToast('🚛 Sistema iniciado. GPS activo.', 'info');
+  }
+  
+  // Iniciar cuando el DOM esté listo
+  document.addEventListener('DOMContentLoaded', init);
+</script>
+</body>
+</html>
