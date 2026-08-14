@@ -1,0 +1,504 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Flotilla GPS Pro — Administración de Usuarios</title>
+<style>
+  :root{
+    --bg: #0b1420;
+    --panel: #101c2c;
+    --panel-alt: #16263a;
+    --line: #223449;
+    --text: #e8eef5;
+    --text-dim: #8ea3b8;
+    --accent: #35c2a4;
+    --accent-dim: #1f6e5f;
+    --warn: #e0a53c;
+    --danger: #e05a4e;
+    --radius: 10px;
+    font-family: 'Segoe UI', Roboto, -apple-system, sans-serif;
+  }
+
+  *{ box-sizing: border-box; }
+
+  body{
+    margin:0;
+    background: var(--bg);
+    background-image:
+      radial-gradient(circle at 15% 0%, rgba(53,194,164,0.08), transparent 40%),
+      radial-gradient(circle at 85% 100%, rgba(53,194,164,0.05), transparent 40%);
+    color: var(--text);
+    min-height:100vh;
+    padding: 20px;
+  }
+
+  header{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    flex-wrap: wrap;
+    gap:12px;
+    margin-bottom: 22px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .brand{ display:flex; align-items:center; gap:10px; }
+  .brand-dot{
+    width:10px; height:10px; border-radius:50%;
+    background: var(--accent);
+    box-shadow: 0 0 0 4px rgba(53,194,164,0.15);
+  }
+  .brand h1{ font-size: 18px; margin:0; letter-spacing:0.3px; }
+  .brand span{ display:block; font-size:11px; color:var(--text-dim); letter-spacing: 1.5px; text-transform: uppercase; margin-top:2px; }
+
+  .stats{ display:flex; gap:10px; flex-wrap:wrap; }
+  .stat{
+    background: var(--panel);
+    border:1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 8px 14px;
+    min-width: 92px;
+    text-align:center;
+  }
+  .stat .n{ font-size:20px; font-weight:700; color: var(--accent); }
+  .stat .l{ font-size:10px; color:var(--text-dim); text-transform:uppercase; letter-spacing:0.6px; }
+
+  .toolbar{
+    display:flex; gap:10px; flex-wrap:wrap; align-items:center;
+    margin-bottom: 16px;
+  }
+
+  input, select{
+    background: var(--panel);
+    border:1px solid var(--line);
+    color: var(--text);
+    padding: 9px 12px;
+    border-radius: 8px;
+    font-size: 13px;
+    outline:none;
+  }
+  input:focus, select:focus{ border-color: var(--accent); }
+
+  #buscar{ flex:1; min-width: 160px; }
+
+  button{
+    cursor:pointer;
+    border:none;
+    border-radius: 8px;
+    padding: 9px 16px;
+    font-size: 13px;
+    font-weight: 600;
+    transition: transform 0.08s ease, opacity 0.15s ease;
+  }
+  button:active{ transform: scale(0.97); }
+
+  .btn-primary{ background: var(--accent); color: #04211a; }
+  .btn-ghost{ background: transparent; color: var(--text); border:1px solid var(--line); }
+  .btn-warn{ background: rgba(224,165,60,0.15); color: var(--warn); border:1px solid rgba(224,165,60,0.35); }
+  .btn-danger{ background: rgba(224,90,78,0.15); color: var(--danger); border:1px solid rgba(224,90,78,0.35); }
+  .btn-sm{ padding:6px 10px; font-size:12px; }
+
+  table{ width:100%; border-collapse: collapse; background: var(--panel); border-radius: var(--radius); overflow:hidden; }
+  thead th{
+    text-align:left;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-dim);
+    background: var(--panel-alt);
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--line);
+  }
+  tbody td{
+    padding: 12px 14px;
+    font-size: 13px;
+    border-bottom: 1px solid var(--line);
+    vertical-align: middle;
+  }
+  tbody tr:last-child td{ border-bottom:none; }
+  tbody tr:hover{ background: rgba(53,194,164,0.04); }
+
+  .badge{
+    display:inline-block;
+    padding: 3px 9px;
+    border-radius: 20px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: capitalize;
+  }
+  .badge.activo{ background: rgba(53,194,164,0.15); color: var(--accent); }
+  .badge.inactivo{ background: rgba(224,90,78,0.15); color: var(--danger); }
+
+  .rol-tag{
+    font-size:11px; color: var(--text-dim); text-transform: uppercase; letter-spacing:0.4px;
+  }
+
+  .acciones{ display:flex; gap:6px; flex-wrap:wrap; }
+
+  .overlay{
+    display:none;
+    position:fixed; inset:0;
+    background: rgba(5,10,16,0.75);
+    align-items:center; justify-content:center;
+    z-index: 50;
+    padding: 16px;
+  }
+  .overlay.show{ display:flex; }
+
+  .modal{
+    background: var(--panel);
+    border:1px solid var(--line);
+    border-radius: var(--radius);
+    width: 100%;
+    max-width: 380px;
+    padding: 20px;
+  }
+  .modal h2{ margin:0 0 14px; font-size:15px; }
+  .modal label{ display:block; font-size:11px; color: var(--text-dim); margin: 10px 0 4px; text-transform:uppercase; letter-spacing:0.4px; }
+  .modal input, .modal select{ width:100%; }
+  .modal-actions{ display:flex; justify-content:flex-end; gap:8px; margin-top:18px; }
+
+  #toast{
+    position: fixed;
+    bottom: 20px; left:50%;
+    transform: translateX(-50%) translateY(20px);
+    background: var(--panel-alt);
+    border:1px solid var(--line);
+    border-left: 3px solid var(--accent);
+    padding: 12px 18px;
+    border-radius: 8px;
+    font-size: 13px;
+    opacity:0;
+    transition: all 0.25s ease;
+    pointer-events:none;
+    z-index: 100;
+  }
+  #toast.show{ opacity:1; transform: translateX(-50%) translateY(0); }
+  #toast.error{ border-left-color: var(--danger); }
+
+  .vacio{ text-align:center; padding: 40px 20px; color: var(--text-dim); font-size:13px; }
+
+  @media (max-width: 640px){
+    table, thead, tbody, tr, td, th{ display:block; }
+    thead{ display:none; }
+    tbody tr{ margin-bottom: 12px; border:1px solid var(--line); border-radius: var(--radius); overflow:hidden; }
+    tbody td{ display:flex; justify-content:space-between; align-items:center; border-bottom: 1px solid var(--line); }
+    tbody td::before{ content: attr(data-label); font-size:10px; text-transform:uppercase; color: var(--text-dim); letter-spacing:0.4px; }
+    .acciones{ justify-content:flex-end; width:100%; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="brand">
+    <div class="brand-dot"></div>
+    <div>
+      <h1>Administración de Usuarios</h1>
+      <span>Flotilla GPS Pro</span>
+    </div>
+  </div>
+  <div class="stats">
+    <div class="stat"><div class="n" id="statTotal">0</div><div class="l">Total</div></div>
+    <div class="stat"><div class="n" id="statActivos">0</div><div class="l">Activos</div></div>
+    <div class="stat"><div class="n" id="statInactivos">0</div><div class="l">Inactivos</div></div>
+  </div>
+</header>
+
+<div class="toolbar">
+  <input type="text" id="buscar" placeholder="Buscar por nombre o correo..." oninput="filtrarTabla()">
+  <select id="filtroRol" onchange="filtrarTabla()">
+    <option value="">Todos los roles</option>
+    <option value="conductor">Conductor</option>
+    <option value="dispatcher">Dispatcher</option>
+    <option value="admin">Admin</option>
+  </select>
+  <select id="filtroEstado" onchange="filtrarTabla()">
+    <option value="">Todos los estados</option>
+    <option value="activo">Activo</option>
+    <option value="inactivo">Inactivo</option>
+  </select>
+  <button class="btn-primary" onclick="abrirModalCrear()">+ Nuevo usuario</button>
+</div>
+
+<table>
+  <thead>
+    <tr>
+      <th>Nombre</th>
+      <th>Correo</th>
+      <th>Rol</th>
+      <th>Estado</th>
+      <th>Último acceso</th>
+      <th>Acciones</th>
+    </tr>
+  </thead>
+  <tbody id="tablaUsuarios">
+    <tr><td colspan="6" class="vacio">Cargando usuarios...</td></tr>
+  </tbody>
+</table>
+
+<!-- MODAL: Crear / Editar usuario -->
+<div class="overlay" id="overlayUsuario">
+  <div class="modal">
+    <h2 id="tituloModalUsuario">Nuevo usuario</h2>
+    <input type="hidden" id="usuarioId">
+
+    <label>Nombre completo</label>
+    <input type="text" id="campoNombre" placeholder="Ej. Juan Pérez">
+
+    <label>Correo electrónico</label>
+    <input type="email" id="campoEmail" placeholder="correo@ejemplo.com">
+
+    <div id="campoPasswordWrap">
+      <label>Contraseña</label>
+      <input type="password" id="campoPassword" placeholder="Mínimo 6 caracteres">
+    </div>
+
+    <label>Rol</label>
+    <select id="campoRol">
+      <option value="conductor">Conductor</option>
+      <option value="dispatcher">Dispatcher</option>
+      <option value="admin">Admin</option>
+    </select>
+
+    <div class="modal-actions">
+      <button class="btn-ghost" onclick="cerrarModal('overlayUsuario')">Cancelar</button>
+      <button class="btn-primary" id="btnGuardarUsuario" onclick="guardarUsuario()">Guardar</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL: Cambiar contraseña -->
+<div class="overlay" id="overlayPassword">
+  <div class="modal">
+    <h2>Cambiar contraseña</h2>
+    <input type="hidden" id="passwordUsuarioId">
+    <label>Nueva contraseña</label>
+    <input type="password" id="nuevaPassword" placeholder="Mínimo 6 caracteres">
+    <div class="modal-actions">
+      <button class="btn-ghost" onclick="cerrarModal('overlayPassword')">Cancelar</button>
+      <button class="btn-primary" onclick="confirmarCambioPassword()">Actualizar</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+  // ================== CONFIGURACIÓN ==================
+  // Reemplaza esta URL por la de tu implementación de Apps Script (Web App)
+  const API_URL = 'https://script.google.com/macros/s/TU_ID_DE_IMPLEMENTACION/exec';
+
+  let usuarios = [];
+
+  // ================== CARGA INICIAL ==================
+  document.addEventListener('DOMContentLoaded', cargarUsuarios);
+
+  function cargarUsuarios(){
+    fetch(API_URL + '?accion=listarUsuarios')
+      .then(function(r){ return r.json(); })
+      .then(function(res){
+        if(res.exito){
+          usuarios = res.datos;
+          renderizarTabla(usuarios);
+          actualizarEstadisticas();
+        } else {
+          mostrarToast(res.mensaje || 'Error al cargar usuarios', true);
+        }
+      })
+      .catch(function(err){
+        mostrarToast('No se pudo conectar con el servidor', true);
+        console.error(err);
+      });
+  }
+
+  // ================== RENDER TABLA ==================
+  function renderizarTabla(lista){
+    const tbody = document.getElementById('tablaUsuarios');
+
+    if(!lista.length){
+      tbody.innerHTML = '<tr><td colspan="6" class="vacio">No hay usuarios registrados todavía.</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = lista.map(function(u){
+      const ultimoAcceso = u.UltimoAcceso ? new Date(u.UltimoAcceso).toLocaleString('es-MX') : '—';
+      return `
+        <tr>
+          <td data-label="Nombre">${escapeHtml(u.Nombre)}</td>
+          <td data-label="Correo">${escapeHtml(u.Email)}</td>
+          <td data-label="Rol"><span class="rol-tag">${escapeHtml(u.Rol)}</span></td>
+          <td data-label="Estado"><span class="badge ${u.Estado}">${u.Estado}</span></td>
+          <td data-label="Último acceso">${ultimoAcceso}</td>
+          <td data-label="Acciones">
+            <div class="acciones">
+              <button class="btn-ghost btn-sm" onclick="abrirModalEditar('${u.ID}')">Editar</button>
+              <button class="btn-warn btn-sm" onclick="abrirModalPassword('${u.ID}')">Contraseña</button>
+              ${u.Estado === 'activo'
+                ? `<button class="btn-danger btn-sm" onclick="desactivarUsuario('${u.ID}')">Desactivar</button>`
+                : `<button class="btn-primary btn-sm" onclick="reactivarUsuario('${u.ID}')">Reactivar</button>`
+              }
+            </div>
+          </td>
+        </tr>`;
+    }).join('');
+  }
+
+  function actualizarEstadisticas(){
+    document.getElementById('statTotal').textContent = usuarios.length;
+    document.getElementById('statActivos').textContent = usuarios.filter(u => u.Estado === 'activo').length;
+    document.getElementById('statInactivos').textContent = usuarios.filter(u => u.Estado === 'inactivo').length;
+  }
+
+  function filtrarTabla(){
+    const texto = document.getElementById('buscar').value.toLowerCase();
+    const rol = document.getElementById('filtroRol').value;
+    const estado = document.getElementById('filtroEstado').value;
+
+    const filtrados = usuarios.filter(function(u){
+      const coincideTexto = u.Nombre.toLowerCase().includes(texto) || u.Email.toLowerCase().includes(texto);
+      const coincideRol = !rol || u.Rol === rol;
+      const coincideEstado = !estado || u.Estado === estado;
+      return coincideTexto && coincideRol && coincideEstado;
+    });
+
+    renderizarTabla(filtrados);
+  }
+
+  // ================== MODAL CREAR / EDITAR ==================
+  function abrirModalCrear(){
+    document.getElementById('tituloModalUsuario').textContent = 'Nuevo usuario';
+    document.getElementById('usuarioId').value = '';
+    document.getElementById('campoNombre').value = '';
+    document.getElementById('campoEmail').value = '';
+    document.getElementById('campoPassword').value = '';
+    document.getElementById('campoRol').value = 'conductor';
+    document.getElementById('campoPasswordWrap').style.display = 'block';
+    document.getElementById('overlayUsuario').classList.add('show');
+  }
+
+  function abrirModalEditar(id){
+    const u = usuarios.find(x => x.ID === id);
+    if(!u) return;
+
+    document.getElementById('tituloModalUsuario').textContent = 'Editar usuario';
+    document.getElementById('usuarioId').value = u.ID;
+    document.getElementById('campoNombre').value = u.Nombre;
+    document.getElementById('campoEmail').value = u.Email;
+    document.getElementById('campoRol').value = u.Rol;
+    document.getElementById('campoPasswordWrap').style.display = 'none'; // password se cambia aparte
+    document.getElementById('overlayUsuario').classList.add('show');
+  }
+
+  function guardarUsuario(){
+    const id = document.getElementById('usuarioId').value;
+    const nombre = document.getElementById('campoNombre').value.trim();
+    const email = document.getElementById('campoEmail').value.trim();
+    const password = document.getElementById('campoPassword').value;
+    const rol = document.getElementById('campoRol').value;
+
+    if(!nombre || !email){
+      mostrarToast('Nombre y correo son obligatorios', true);
+      return;
+    }
+
+    const esEdicion = !!id;
+    const accion = esEdicion ? 'editarUsuario' : 'crearUsuario';
+    const payload = esEdicion
+      ? { accion, id, nombre, email, rol }
+      : { accion, nombre, email, password, rol };
+
+    if(!esEdicion && (!password || password.length < 6)){
+      mostrarToast('La contraseña debe tener al menos 6 caracteres', true);
+      return;
+    }
+
+    llamarAPI(payload).then(function(res){
+      if(res.exito){
+        mostrarToast(res.mensaje);
+        cerrarModal('overlayUsuario');
+        cargarUsuarios();
+      } else {
+        mostrarToast(res.mensaje, true);
+      }
+    });
+  }
+
+  // ================== CAMBIAR CONTRASEÑA ==================
+  function abrirModalPassword(id){
+    document.getElementById('passwordUsuarioId').value = id;
+    document.getElementById('nuevaPassword').value = '';
+    document.getElementById('overlayPassword').classList.add('show');
+  }
+
+  function confirmarCambioPassword(){
+    const id = document.getElementById('passwordUsuarioId').value;
+    const nuevaPassword = document.getElementById('nuevaPassword').value;
+
+    if(!nuevaPassword || nuevaPassword.length < 6){
+      mostrarToast('La contraseña debe tener al menos 6 caracteres', true);
+      return;
+    }
+
+    llamarAPI({ accion: 'cambiarPassword', id, nuevaPassword }).then(function(res){
+      if(res.exito){
+        mostrarToast(res.mensaje);
+        cerrarModal('overlayPassword');
+      } else {
+        mostrarToast(res.mensaje, true);
+      }
+    });
+  }
+
+  // ================== DESACTIVAR / REACTIVAR ==================
+  function desactivarUsuario(id){
+    if(!confirm('¿Desactivar este usuario? Podrás reactivarlo después.')) return;
+
+    llamarAPI({ accion: 'eliminarUsuario', id, modo: 'desactivar' }).then(function(res){
+      mostrarToast(res.mensaje, !res.exito);
+      if(res.exito) cargarUsuarios();
+    });
+  }
+
+  function reactivarUsuario(id){
+    llamarAPI({ accion: 'reactivarUsuario', id }).then(function(res){
+      mostrarToast(res.mensaje, !res.exito);
+      if(res.exito) cargarUsuarios();
+    });
+  }
+
+  // ================== UTILIDADES ==================
+  function llamarAPI(payload){
+    return fetch(API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify(payload)
+    }).then(function(r){ return r.json(); })
+      .catch(function(err){
+        console.error(err);
+        return { exito: false, mensaje: 'Error de conexión con el servidor.' };
+      });
+  }
+
+  function cerrarModal(idOverlay){
+    document.getElementById(idOverlay).classList.remove('show');
+  }
+
+  function mostrarToast(mensaje, esError){
+    const toast = document.getElementById('toast');
+    toast.textContent = mensaje;
+    toast.className = esError ? 'show error' : 'show';
+    setTimeout(function(){ toast.className = ''; }, 3000);
+  }
+
+  function escapeHtml(str){
+    const div = document.createElement('div');
+    div.textContent = str || '';
+    return div.innerHTML;
+  }
+</script>
+
+</body>
+</html>
