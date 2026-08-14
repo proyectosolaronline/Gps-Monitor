@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Flotilla GPS Pro — Iniciar sesión</title>
+<style>
+  :root{
+    --bg:#0b1420; --panel:#101c2c; --line:#223449;
+    --text:#e8eef5; --text-dim:#8ea3b8; --accent:#35c2a4; --danger:#e05a4e;
+  }
+  *{ box-sizing:border-box; }
+  body{
+    margin:0; min-height:100vh; display:flex; align-items:center; justify-content:center;
+    background: var(--bg);
+    background-image: radial-gradient(circle at 20% 20%, rgba(53,194,164,0.10), transparent 45%),
+                       radial-gradient(circle at 80% 80%, rgba(53,194,164,0.06), transparent 45%);
+    font-family: 'Segoe UI', Roboto, -apple-system, sans-serif;
+    color: var(--text);
+    padding: 20px;
+  }
+  .card{
+    width:100%; max-width: 360px;
+    background: var(--panel);
+    border:1px solid var(--line);
+    border-radius: 14px;
+    padding: 32px 28px;
+  }
+  .logo{ display:flex; align-items:center; gap:10px; margin-bottom: 6px; }
+  .dot{ width:12px; height:12px; border-radius:50%; background: var(--accent); box-shadow: 0 0 0 5px rgba(53,194,164,0.15); }
+  h1{ font-size:18px; margin:0; }
+  .sub{ color: var(--text-dim); font-size:13px; margin: 4px 0 26px; }
+  label{ display:block; font-size:11px; text-transform:uppercase; letter-spacing:0.5px; color: var(--text-dim); margin: 14px 0 6px; }
+  input{
+    width:100%; background:#0d1826; border:1px solid var(--line); color: var(--text);
+    padding: 11px 13px; border-radius: 8px; font-size:14px; outline:none;
+  }
+  input:focus{ border-color: var(--accent); }
+  button{
+    width:100%; margin-top: 22px; background: var(--accent); color:#04211a;
+    border:none; padding: 12px; border-radius: 8px; font-size:14px; font-weight:700; cursor:pointer;
+  }
+  button:disabled{ opacity:0.6; cursor:default; }
+  .error{
+    margin-top: 14px; background: rgba(224,90,78,0.12); border:1px solid rgba(224,90,78,0.35);
+    color: var(--danger); font-size:12.5px; padding: 10px 12px; border-radius:8px; display:none;
+  }
+  .info{
+    margin-top: 14px; background: rgba(53,194,164,0.10); border:1px solid rgba(53,194,164,0.3);
+    color: var(--accent); font-size:12.5px; padding: 10px 12px; border-radius:8px; display:none;
+  }
+  footer{ text-align:center; margin-top:22px; font-size:11px; color: var(--text-dim); }
+</style>
+</head>
+<body>
+
+<div class="card">
+  <div class="logo"><div class="dot"></div><h1>Flotilla GPS Pro</h1></div>
+  <div class="sub">Ingresa con tu correo y contraseña para continuar.</div>
+
+  <div class="info" id="infoMsg"></div>
+  <div class="error" id="errorMsg"></div>
+
+  <form id="formLogin">
+    <label>Correo electrónico</label>
+    <input type="email" id="email" required autocomplete="username">
+
+    <label>Contraseña</label>
+    <input type="password" id="password" required autocomplete="current-password">
+
+    <button type="submit" id="btnLogin">Entrar</button>
+  </form>
+
+  <footer>Acceso restringido. Todo el sistema requiere inicio de sesión.</footer>
+</div>
+
+<script src="auth.js"></script>
+<script>
+  // Si ya hay una sesión guardada, intenta pasar directo (proteger revalida contra el servidor)
+  if (FlotillaAuth.obtenerToken()) {
+    FlotillaAuth.proteger().then(function (usuario) {
+      redirigirSegunRol(usuario);
+    }).catch(function () { /* proteger ya redirige si falla */ });
+  }
+
+  // Mensaje pasado por querystring (ej. sesión expirada)
+  const params = new URLSearchParams(window.location.search);
+  if (params.get('msg')) {
+    const info = document.getElementById('infoMsg');
+    info.textContent = params.get('msg');
+    info.style.display = 'block';
+  }
+
+  document.getElementById('formLogin').addEventListener('submit', function (e) {
+    e.preventDefault();
+
+    const email = document.getElementById('email').value.trim();
+    const password = document.getElementById('password').value;
+    const btn = document.getElementById('btnLogin');
+    const errorBox = document.getElementById('errorMsg');
+    errorBox.style.display = 'none';
+
+    btn.disabled = true;
+    btn.textContent = 'Ingresando...';
+
+    FlotillaAuth.iniciarSesion(email, password).then(function (res) {
+      if (res.exito) {
+        redirigirSegunRol(res.usuario);
+      } else {
+        errorBox.textContent = res.mensaje || 'No se pudo iniciar sesión.';
+        errorBox.style.display = 'block';
+        btn.disabled = false;
+        btn.textContent = 'Entrar';
+      }
+    });
+  });
+
+  function redirigirSegunRol(usuario) {
+    if (usuario.Rol === 'admin') {
+      window.location.href = 'Monitor.html';
+    } else if (usuario.Rol === 'dispatcher') {
+      window.location.href = 'Monitor.html';
+    } else {
+      window.location.href = 'Transito.html';
+    }
+  }
+</script>
+
+</body>
+</html>
