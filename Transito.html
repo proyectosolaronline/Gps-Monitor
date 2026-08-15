@@ -1,0 +1,352 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#0b1420">
+<title>Flotilla GPS Pro — Tránsito</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<style>
+  :root{
+    --bg:#0b1420; --panel:#101c2c; --line:#223449;
+    --text:#e8eef5; --text-dim:#8ea3b8; --accent:#35c2a4; --danger:#e05a4e; --warn:#e0a53c;
+    --safe-top: env(safe-area-inset-top, 0px);
+    --safe-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  *{ box-sizing:border-box; -webkit-tap-highlight-color: transparent; }
+  html, body{
+    margin:0; height:100%; width:100%; overflow:hidden;
+    background:var(--bg); color:var(--text);
+    font-family:'Segoe UI',Roboto,-apple-system,sans-serif;
+    touch-action: manipulation;
+  }
+
+  #app{ position:fixed; inset:0; display:flex; flex-direction:column; }
+
+  /* ===== Header compacto, se oculta en modo pantalla completa ===== */
+  header{
+    display:flex; align-items:center; justify-content:space-between; gap:8px;
+    padding: calc(10px + var(--safe-top)) 12px 10px;
+    border-bottom:1px solid var(--line); background: var(--panel);
+    z-index:20; transition: transform 0.25s ease, opacity 0.25s ease;
+  }
+  body.fullscreen-mode header{ transform: translateY(-100%); opacity:0; pointer-events:none; }
+
+  .brand{ display:flex; align-items:center; gap:7px; min-width:0; }
+  .dot{ width:8px; height:8px; border-radius:50%; background:var(--accent); box-shadow:0 0 0 4px rgba(53,194,164,0.15); flex-shrink:0; }
+  .brand h1{ font-size:13px; margin:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  nav{ display:flex; gap:6px; align-items:center; flex-shrink:0; }
+  nav a, nav button{
+    text-decoration:none; color:var(--text); background:transparent; border:1px solid var(--line);
+    padding:8px 11px; border-radius:8px; font-size:11.5px; cursor:pointer;
+  }
+
+  /* ===== Mapa ===== */
+  main{ flex:1; position:relative; min-height:0; }
+  #mapa{ position:absolute; inset:0; }
+
+  /* ===== Botones flotantes: reubicados más arriba para no chocar
+     con la barra de dirección inferior ni con el pulgar del usuario ===== */
+  .flotante{
+    position:absolute; z-index: 400;
+    background: rgba(16,28,44,0.94); border:1px solid var(--line);
+    backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+  }
+
+  .fila-superior{
+    position:absolute; top: calc(12px + var(--safe-top)); left:12px; right:12px;
+    display:flex; justify-content:space-between; gap:10px; z-index:400;
+  }
+  body.fullscreen-mode .fila-superior{ top: 12px; }
+
+  .estado-select{
+    border-radius:10px; padding: 9px 12px;
+  }
+  .estado-select select{
+    background:none; border:none; color: var(--text); font-size:13px; outline:none; font-weight:600;
+  }
+
+  .btn-icono{
+    width:42px; height:42px; border-radius:10px; display:flex; align-items:center; justify-content:center;
+    color: var(--text); font-size:17px; cursor:pointer; flex-shrink:0;
+  }
+  .grupo-botones-top{ display:flex; gap:8px; }
+
+  /* HUD: velocímetro + dirección corta, ahora en la zona MEDIA-BAJA
+     (más arriba que antes) para quedar cómodo al pulgar y no tapar
+     la barra de dirección fija del fondo */
+  .hud{
+    position:absolute; left:12px; bottom: calc(96px + var(--safe-bottom)); z-index: 400;
+    display:flex; flex-direction:column; gap:8px;
+  }
+  .velocimetro{
+    border-radius:14px; padding: 12px 20px; text-align:center; min-width: 92px;
+  }
+  .velocimetro .valor{ font-size:28px; font-weight:800; color: var(--accent); line-height:1; }
+  .velocimetro .unidad{ font-size:9px; color: var(--text-dim); text-transform:uppercase; letter-spacing:1px; margin-top:3px; }
+
+  .sos-btn{
+    position:absolute; right:14px; bottom: calc(96px + var(--safe-bottom)); z-index:400;
+    width:66px; height:66px; border-radius:50%; background: var(--danger);
+    color:#fff; border:none; font-weight:800; font-size:13px; cursor:pointer;
+    box-shadow: 0 0 0 6px rgba(224,90,78,0.18);
+  }
+  .sos-btn:active{ transform: scale(0.94); }
+
+  /* ===== Barra de dirección — fija abajo, se actualiza cada minuto ===== */
+  .barra-direccion{
+    position:absolute; left:0; right:0; bottom:0; z-index: 450;
+    background: rgba(11,20,32,0.96); border-top:1px solid var(--line);
+    backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+    padding: 12px 16px calc(12px + var(--safe-bottom));
+    display:flex; align-items:center; gap:10px;
+  }
+  .barra-direccion .icono{ font-size:18px; flex-shrink:0; }
+  .barra-direccion .info{ min-width:0; flex:1; }
+  .barra-direccion .calle{
+    font-size:13px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+  }
+  .barra-direccion .actualizado{ font-size:10px; color: var(--text-dim); margin-top:1px; }
+
+  #toast{
+    position: fixed; left:50%; transform: translateX(-50%) translateY(20px);
+    bottom: calc(160px + var(--safe-bottom));
+    background: var(--panel); border:1px solid var(--line); border-left:3px solid var(--accent);
+    padding: 12px 18px; border-radius:8px; font-size:13px; opacity:0; transition: all 0.25s ease;
+    pointer-events:none; z-index: 999; max-width: 88%;
+  }
+  #toast.show{ opacity:1; transform: translateX(-50%) translateY(0); }
+  #toast.error{ border-left-color: var(--danger); }
+
+  /* Pantallas muy angostas: reduce un poco el velocímetro */
+  @media (max-width: 340px){
+    .velocimetro{ padding: 10px 16px; }
+    .velocimetro .valor{ font-size:24px; }
+  }
+</style>
+</head>
+<body>
+
+<div id="app">
+  <header>
+    <div class="brand"><div class="dot"></div><h1 id="tituloUsuario">Tránsito</h1></div>
+    <nav>
+      <a href="Chat.html">Chat</a>
+      <button onclick="FlotillaAuth.cerrarSesion()">Salir</button>
+    </nav>
+  </header>
+
+  <main>
+    <div id="mapa"></div>
+
+    <div class="fila-superior">
+      <div class="flotante estado-select">
+        <select id="selectEstado" onchange="cambiarEstado()">
+          <option value="activo">🟢 Activo</option>
+          <option value="detenido">🟡 Detenido</option>
+          <option value="averia">🔴 Avería</option>
+        </select>
+      </div>
+
+      <div class="grupo-botones-top">
+        <div class="flotante btn-icono" id="btnCapa" onclick="alternarCapa()" title="Cambiar vista">🛰️</div>
+        <div class="flotante btn-icono" id="btnFullscreen" onclick="alternarPantallaCompleta()" title="Pantalla completa">⛶</div>
+      </div>
+    </div>
+
+    <div class="hud">
+      <div class="flotante velocimetro">
+        <div class="valor" id="valorVelocidad">0</div>
+        <div class="unidad">km/h</div>
+      </div>
+    </div>
+
+    <button class="sos-btn" onclick="enviarSOS()">SOS</button>
+
+    <div class="barra-direccion">
+      <div class="icono">📍</div>
+      <div class="info">
+        <div class="calle" id="calleActual">Obteniendo ubicación...</div>
+        <div class="actualizado" id="direccionActualizada">—</div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<div id="toast"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="auth.js"></script>
+<script>
+  let mapa, marcadorPropio, marcadoresFlotilla = {};
+  let estadoActual = 'activo';
+  let ultimaPosicion = null;
+  let ultimoGuardadoRuta = 0;
+  let capaSatelital, capaCalles, usandoSatelital = true;
+
+  FlotillaAuth.proteger().then(function (usuario) {
+    document.getElementById('tituloUsuario').textContent = usuario.Nombre;
+    iniciarMapa();
+    iniciarGPS();
+    cargarFlotilla();
+    setInterval(cargarFlotilla, 6000);
+
+    // La barra de dirección se actualiza UNA VEZ POR MINUTO, no en cada
+    // lectura de GPS, para no saturar el servicio de geocodificación.
+    setInterval(actualizarDireccion, 60 * 1000);
+  });
+
+  function iniciarMapa() {
+    mapa = L.map('mapa', { zoomControl: false }).setView([31.8667, -116.5964], 15);
+
+    capaSatelital = L.tileLayer(
+      'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+      { attribution: 'Tiles &copy; Esri', maxZoom: 19 }
+    );
+    capaCalles = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '&copy; OpenStreetMap', maxZoom: 19
+    });
+
+    // Vista satelital por defecto
+    capaSatelital.addTo(mapa);
+    L.control.zoom({ position: 'bottomright' }).addTo(mapa);
+  }
+
+  function alternarCapa() {
+    if (usandoSatelital) {
+      mapa.removeLayer(capaSatelital);
+      capaCalles.addTo(mapa);
+      document.getElementById('btnCapa').textContent = '🗺️';
+    } else {
+      mapa.removeLayer(capaCalles);
+      capaSatelital.addTo(mapa);
+      document.getElementById('btnCapa').textContent = '🛰️';
+    }
+    usandoSatelital = !usandoSatelital;
+  }
+
+  function alternarPantallaCompleta() {
+    const btn = document.getElementById('btnFullscreen');
+    if (!document.fullscreenElement) {
+      (document.documentElement.requestFullscreen || document.documentElement.webkitRequestFullscreen || function(){})
+        .call(document.documentElement)
+        .catch(function(){});
+      document.body.classList.add('fullscreen-mode');
+      btn.textContent = '⛶';
+    } else {
+      (document.exitFullscreen || document.webkitExitFullscreen || function(){}).call(document);
+      document.body.classList.remove('fullscreen-mode');
+    }
+  }
+
+  document.addEventListener('fullscreenchange', function () {
+    if (!document.fullscreenElement) document.body.classList.remove('fullscreen-mode');
+  });
+
+  function iniciarGPS() {
+    if (!navigator.geolocation) {
+      mostrarToast('Este dispositivo no soporta GPS.', true);
+      return;
+    }
+
+    navigator.geolocation.watchPosition(function (pos) {
+      const lat = pos.coords.latitude;
+      const lng = pos.coords.longitude;
+      const velocidadKmh = pos.coords.speed ? Math.round(pos.coords.speed * 3.6) : 0;
+
+      ultimaPosicion = { lat: lat, lng: lng };
+      document.getElementById('valorVelocidad').textContent = velocidadKmh;
+
+      if (!marcadorPropio) {
+        marcadorPropio = L.marker([lat, lng]).addTo(mapa);
+        mapa.setView([lat, lng], 17);
+        actualizarDireccion(); // primera lectura inmediata al abrir
+      } else {
+        marcadorPropio.setLatLng([lat, lng]);
+      }
+
+      FlotillaAuth.llamar('actualizarUbicacion', { lat: lat, lng: lng, velocidad: velocidadKmh, estado: estadoActual });
+
+      // Guarda un punto de ruta cada ~5 minutos
+      const ahora = Date.now();
+      if (ahora - ultimoGuardadoRuta > 5 * 60 * 1000) {
+        ultimoGuardadoRuta = ahora;
+        FlotillaAuth.llamar('guardarPuntoRuta', { lat: lat, lng: lng });
+      }
+    }, function (err) {
+      mostrarToast('No se pudo obtener tu ubicación: ' + err.message, true);
+    }, { enableHighAccuracy: true, maximumAge: 3000, timeout: 8000 });
+  }
+
+  function actualizarDireccion() {
+    if (!ultimaPosicion) return;
+
+    fetch('https://nominatim.openstreetmap.org/reverse?format=json&lat=' + ultimaPosicion.lat + '&lon=' + ultimaPosicion.lng)
+      .then(function (r) { return r.json(); })
+      .then(function (res) {
+        document.getElementById('calleActual').textContent = res.display_name || 'Dirección no disponible';
+        document.getElementById('direccionActualizada').textContent =
+          'Actualizado ' + new Date().toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' });
+      })
+      .catch(function () {});
+  }
+
+  function cambiarEstado() {
+    estadoActual = document.getElementById('selectEstado').value;
+    if (ultimaPosicion) {
+      FlotillaAuth.llamar('actualizarUbicacion', {
+        lat: ultimaPosicion.lat, lng: ultimaPosicion.lng, estado: estadoActual
+      });
+    }
+  }
+
+  function cargarFlotilla() {
+    FlotillaAuth.llamarGet('listarFlotilla').then(function (res) {
+      if (!res.exito) return;
+      const usuario = FlotillaAuth.obtenerUsuario();
+
+      res.datos.forEach(function (v) {
+        if (usuario && v.UsuarioID === usuario.ID) return; // no duplicar el propio marcador
+        if (!v.Lat || !v.Lng) return;
+
+        if (marcadoresFlotilla[v.UsuarioID]) {
+          marcadoresFlotilla[v.UsuarioID].setLatLng([v.Lat, v.Lng]);
+        } else {
+          marcadoresFlotilla[v.UsuarioID] = L.marker([v.Lat, v.Lng], {
+            icon: L.divIcon({
+              className: '',
+              html: '<div style="width:13px;height:13px;border-radius:50%;background:#8ea3b8;border:2px solid #0b1420;"></div>',
+              iconSize: [13, 13]
+            })
+          }).addTo(mapa).bindPopup(v.Nombre);
+        }
+      });
+    });
+  }
+
+  function enviarSOS() {
+    if (!confirm('¿Enviar alerta de emergencia SOS al monitor?')) return;
+
+    FlotillaAuth.llamar('enviarAlerta', {
+      tipo: 'SOS',
+      mensaje: 'Alerta enviada manualmente desde tránsito.',
+      lat: ultimaPosicion ? ultimaPosicion.lat : '',
+      lng: ultimaPosicion ? ultimaPosicion.lng : ''
+    }).then(function (res) {
+      mostrarToast(res.exito ? 'Alerta SOS enviada.' : (res.mensaje || 'Error al enviar alerta.'), !res.exito);
+    });
+  }
+
+  function mostrarToast(mensaje, esError) {
+    const toast = document.getElementById('toast');
+    toast.textContent = mensaje;
+    toast.className = esError ? 'show error' : 'show';
+    setTimeout(function () { toast.className = ''; }, 3500);
+  }
+</script>
+
+</body>
+</html>
