@@ -1,0 +1,662 @@
+/**
+ * ==========================================================
+ * FLOTILLA GPS PRO — CODE.GS
+ * Backend único que une todas las páginas (Login, Monitor,
+ * Tránsito/Conductor, Chat, Admin) alojadas por separado
+ * (ej. GitHub Pages) mediante un sistema de sesiones por token.
+ * ==========================================================
+ * A partir de esta versión, TODA acción (excepto "login")
+ * requiere un token de sesión válido. Sin sesión válida,
+ * ninguna pantalla puede leer ni escribir datos.
+ * ==========================================================
+ */
+
+// ---------- NOMBRES DE PESTAÑAS ----------
+
+const SHEET_USUARIOS = 'Usuarios';
+const SHEET_FLOTILLA = 'Flotilla';
+const SHEET_CHAT = 'Chat';
+const SHEET_RUTAS = 'Rutas';
+const SHEET_ALERTAS = 'Alertas';
+const SHEET_SESIONES = 'Sesiones';
+const SHEET_CONFIG = 'Config';
+
+const ESQUEMA_PESTANAS = {
+  [SHEET_USUARIOS]: ['ID', 'Nombre', 'Email', 'PasswordHash', 'Rol', 'Estado', 'FechaCreacion', 'UltimoAcceso', 'Telefono'],
+  [SHEET_FLOTILLA]: ['UsuarioID', 'Nombre', 'Lat', 'Lng', 'Velocidad', 'Estado', 'Timestamp'],
+  [SHEET_CHAT]: ['ID', 'UsuarioID', 'Nombre', 'Mensaje', 'Timestamp'],
+  [SHEET_RUTAS]: ['ID', 'UsuarioID', 'Lat', 'Lng', 'Timestamp'],
+  [SHEET_ALERTAS]: ['ID', 'UsuarioID', 'Nombre', 'Tipo', 'Mensaje', 'Lat', 'Lng', 'Timestamp', 'Atendida'],
+  [SHEET_SESIONES]: ['Token', 'UsuarioID', 'Nombre', 'Email', 'Rol', 'Creado', 'Expira'],
+  [SHEET_CONFIG]: ['Clave', 'Valor']
+};
+
+// Duración de la sesión: 12 horas
+const DURACION_SESION_MS = 12 * 60 * 60 * 1000;
+
+// ---------- MAPA DE PERMISOS POR ACCIÓN ----------
+// null = cualquier usuario logueado (sin importar rol) puede ejecutarla
+// []   = pública, no requiere sesión
+const PERMISOS_ACCIONES = {
+  // públicas
+  login: [],
+  verificarSesion: [],
+
+  // cualquier usuario logueado
+  logout: null,
+  actualizarUbicacion: null,
+  listarFlotilla: null,
+  guardarPuntoRuta: null,
+  enviarMensaje: null,
+  listarMensajes: null,
+  enviarAlerta: null,
+
+  // solo dispatcher o admin
+  listarAlertas: ['dispatcher', 'admin'],
+  atenderAlerta: ['dispatcher', 'admin'],
+
+  // solo admin
+  listarUsuarios: ['admin'],
+  crearUsuario: ['admin'],
+  editarUsuario: ['admin'],
+  eliminarUsuario: ['admin'],
+  cambiarPassword: ['admin'],
+  cambiarRol: ['admin'],
+  reactivarUsuario: ['admin']
+};
+
+// ---------- INICIALIZACIÓN DE HOJAS ----------
+
+function inicializarHojas() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+
+  Object.keys(ESQUEMA_PESTANAS).forEach(function (nombre) {
+    let hoja = ss.getSheetByName(nombre);
+
+    if (!hoja) {
+      hoja = ss.insertSheet(nombre);
+      hoja.appendRow(ESQUEMA_PESTANAS[nombre]);
+      hoja.setFrozenRows(1);
+      hoja.getRange(1, 1, 1, ESQUEMA_PESTANAS[nombre].length)
+        .setFontWeight('bold').setBackground('#4285f4').setFontColor('#ffffff');
+    } else if (hoja.getLastRow() === 0) {
+      hoja.appendRow(ESQUEMA_PESTANAS[nombre]);
+      hoja.setFrozenRows(1);
+    }
+  });
+
+  return ss;
+}
+
+function getHoja(nombre) {
+  return inicializarHojas().getSheetByName(nombre);
+}
+
+// ---------- UTILIDADES ----------
+
+function hashPassword(password) {
+  const bytes = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, password, Utilities.Charset.UTF_8);
+  return bytes.map(function (b) {
+    const v = (b < 0 ? b + 256 : b).toString(16);
+    return v.length === 1 ? '0' + v : v;
+  }).join('');
+}
+
+function generarId() { return Utilities.getUuid(); }
+function generarToken() { return Utilities.getUuid().replace(/-/g, '') + Utilities.getUuid().replace(/-/g, ''); }
+
+function respuestaJSON(obj) {
+  return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON);
+}
+
+function filaAObjeto(cabeceras, fila) {
+  const obj = {};
+  cabeceras.forEach(function (cab, i) { obj[cab] = fila[i]; });
+  return obj;
+}
+
+function obtenerDatosHoja(hoja) {
+  const valores = hoja.getDataRange().getValues();
+  const cabeceras = valores.shift();
+  return { cabeceras: cabeceras, filas: valores };
+}
+
+function usuarioPublico(usuario) {
+  const copia = Object.assign({}, usuario);
+  delete copia.PasswordHash;
+  return copia;
+}
+
+// ================================================================
+// SESIONES — el corazón del sistema de protección
+// ================================================================
+
+function crearSesion(usuario) {
+  const hoja = getHoja(SHEET_SESIONES);
+  const token = generarToken();
+  const ahora = new Date();
+  const expira = new Date(ahora.getTime() + DURACION_SESION_MS);
+
+  hoja.appendRow([token, usuario.ID, usuario.Nombre, usuario.Email, usuario.Rol, ahora, expira]);
+
+  // Limpieza silenciosa de sesiones vencidas (mantiene la hoja ligera)
+  limpiarSesionesExpiradas(hoja);
+
+  return { token: token, expira: expira };
+}
+
+function limpiarSesionesExpiradas(hojaOpcional) {
+  const hoja = hojaOpcional || getHoja(SHEET_SESIONES);
+  const { cabeceras, filas } = obtenerDatosHoja(hoja);
+  const expiraIdx = cabeceras.indexOf('Expira');
+  const ahora = new Date();
+
+  // Recorre de abajo hacia arriba para poder borrar filas sin desfasar índices
+  for (let i = filas.length - 1; i >= 0; i--) {
+    const expira = new Date(filas[i][expiraIdx]);
+    if (expira < ahora) {
+      hoja.deleteRow(i + 2);
+    }
+  }
+}
+
+/**
+ * Verifica un token de sesión.
+ * Devuelve { valido: true, usuario: {...} } o { valido: false, mensaje: '...' }
+ */
+function verificarSesion(token) {
+  if (!token) return { valido: false, mensaje: 'Falta el token de sesión.' };
+
+  const hoja = getHoja(SHEET_SESIONES);
+  const { cabeceras, filas } = obtenerDatosHoja(hoja);
+  const tokenIdx = cabeceras.indexOf('Token');
+  const expiraIdx = cabeceras.indexOf('Expira');
+
+  for (let i = 0; i < filas.length; i++) {
+    if (filas[i][tokenIdx] === token) {
+      const expira = new Date(filas[i][expiraIdx]);
+
+      if (expira < new Date()) {
+        hoja.deleteRow(i + 2);
+        return { valido: false, mensaje: 'La sesión expiró. Inicia sesión de nuevo.' };
+      }
+
+      const sesion = filaAObjeto(cabeceras, filas[i]);
+      return {
+        valido: true,
+        usuario: { ID: sesion.UsuarioID, Nombre: sesion.Nombre, Email: sesion.Email, Rol: sesion.Rol }
+      };
+    }
+  }
+
+  return { valido: false, mensaje: 'Sesión inválida. Inicia sesión de nuevo.' };
+}
+
+function cerrarSesion(token) {
+  const hoja = getHoja(SHEET_SESIONES);
+  const { cabeceras, filas } = obtenerDatosHoja(hoja);
+  const tokenIdx = cabeceras.indexOf('Token');
+
+  for (let i = 0; i < filas.length; i++) {
+    if (filas[i][tokenIdx] === token) {
+      hoja.deleteRow(i + 2);
+      return { exito: true, mensaje: 'Sesión cerrada.' };
+    }
+  }
+  return { exito: true, mensaje: 'Sesión ya estaba cerrada.' };
+}
+
+/**
+ * Verifica sesión Y rol permitido para una acción. Lanza un objeto de error
+ * homogéneo si algo falla, listo para responder directo al cliente.
+ */
+function autorizar(token, accion) {
+  const rolesPermitidos = PERMISOS_ACCIONES[accion];
+
+  // Acción pública (login, verificarSesion): no requiere token
+  if (Array.isArray(rolesPermitidos) && rolesPermitidos.length === 0 && (accion === 'login' || accion === 'verificarSesion')) {
+    return { ok: true, usuario: null };
+  }
+
+  const check = verificarSesion(token);
+  if (!check.valido) {
+    return { ok: false, error: { exito: false, mensaje: check.mensaje, codigo: 'SESION_INVALIDA' } };
+  }
+
+  if (Array.isArray(rolesPermitidos) && rolesPermitidos.length > 0) {
+    if (rolesPermitidos.indexOf(check.usuario.Rol) === -1) {
+      return { ok: false, error: { exito: false, mensaje: 'No tienes permiso para esta acción.', codigo: 'SIN_PERMISO' } };
+    }
+  }
+
+  return { ok: true, usuario: check.usuario };
+}
+
+// ================================================================
+// LOGIN / LOGOUT
+// ================================================================
+
+function login(data) {
+  if (!data.email || !data.password) {
+    return { exito: false, mensaje: 'Faltan credenciales.' };
+  }
+
+  const hoja = getHoja(SHEET_USUARIOS);
+  const { cabeceras, filas } = obtenerDatosHoja(hoja);
+  const emailIdx = cabeceras.indexOf('Email');
+  const passIdx = cabeceras.indexOf('PasswordHash');
+  const estadoIdx = cabeceras.indexOf('Estado');
+  const hashIngresado = hashPassword(data.password);
+
+  for (let i = 0; i < filas.length; i++) {
+    if (String(filas[i][emailIdx]).toLowerCase() === String(data.email).toLowerCase()) {
+      if (filas[i][estadoIdx] !== 'activo') {
+        return { exito: false, mensaje: 'Este usuario está desactivado.' };
+      }
+      if (filas[i][passIdx] !== hashIngresado) {
+        return { exito: false, mensaje: 'Contraseña incorrecta.' };
+      }
+
+      hoja.getRange(i + 2, cabeceras.indexOf('UltimoAcceso') + 1).setValue(new Date());
+
+      const usuario = filaAObjeto(cabeceras, filas[i]);
+      const sesion = crearSesion(usuario);
+
+      return {
+        exito: true,
+        usuario: usuarioPublico(usuario),
+        token: sesion.token,
+        expira: sesion.expira
+      };
+    }
+  }
+
+  return { exito: false, mensaje: 'Usuario no encontrado.' };
+}
+
+function logout(usuario, data) {
+  return cerrarSesion(data.token);
+}
+
+// ================================================================
+// CRUD DE USUARIOS (solo admin — validado en el dispatcher doPost)
+// ================================================================
+
+function listarUsuarios() {
+  const hoja = getHoja(SHEET_USUARIOS);
+  const { cabeceras, filas } = obtenerDatosHoja(hoja);
+  return filas.map(function (fila) { return usuarioPublico(filaAObjeto(cabeceras, fila)); });
+}
+
+function crearUsuario(usuarioActivo, data) {
+  if (!data.nombre || !data.email || !data.password || !data.rol) {
+    return { exito: false, mensaje: 'Faltan campos obligatorios (nombre, email, password, rol).' };
+  }
+
+  const hoja = getHoja(SHEET_USUARIOS);
+  const { cabeceras, filas } = obtenerDatosHoja(hoja);
+  const emailIdx = cabeceras.indexOf('Email');
+
+  const yaExiste = filas.some(function (fila) {
+    return String(fila[emailIdx]).toLowerCase() === String(data.email).toLowerCase();
+  });
+  if (yaExiste) return { exito: false, mensaje: 'Ya existe un usuario con ese correo.' };
+
+  const nuevoId = generarId();
+
+  // Se arma la fila según las cabeceras reales de tu hoja (respeta el
+  // orden que ya tengas, incluida una columna "Telefono" agregada a mano).
+  const valores = {
+    ID: nuevoId, Nombre: data.nombre, Email: data.email,
+    PasswordHash: hashPassword(data.password), Rol: data.rol,
+    Estado: 'activo', FechaCreacion: new Date(), UltimoAcceso: '',
+    Telefono: data.telefono || ''
+  };
+  const fila = cabeceras.map(function (col) {
+    return valores.hasOwnProperty(col) ? valores[col] : '';
+  });
+
+  hoja.appendRow(fila);
+
+  return { exito: true, mensaje: 'Usuario creado correctamente.', id: nuevoId };
+}
+
+function editarUsuario(usuarioActivo, data) {
+  if (!data.id) return { exito: false, mensaje: 'Falta el ID del usuario.' };
+
+  const hoja = getHoja(SHEET_USUARIOS);
+  const { cabeceras, filas } = obtenerDatosHoja(hoja);
+  const idIdx = cabeceras.indexOf('ID');
+
+  for (let i = 0; i < filas.length; i++) {
+    if (filas[i][idIdx] === data.id) {
+      const filaSheet = i + 2;
+      if (data.nombre) hoja.getRange(filaSheet, cabeceras.indexOf('Nombre') + 1).setValue(data.nombre);
+      if (data.email) hoja.getRange(filaSheet, cabeceras.indexOf('Email') + 1).setValue(data.email);
+      if (data.rol) hoja.getRange(filaSheet, cabeceras.indexOf('Rol') + 1).setValue(data.rol);
+      if (data.telefono !== undefined && cabeceras.indexOf('Telefono') !== -1) {
+        hoja.getRange(filaSheet, cabeceras.indexOf('Telefono') + 1).setValue(data.telefono);
+      }
+      return { exito: true, mensaje: 'Usuario actualizado correctamente.' };
+    }
+  }
+  return { exito: false, mensaje: 'Usuario no encontrado.' };
+}
+
+function eliminarUsuario(usuarioActivo, data) {
+  if (!data.id) return { exito: false, mensaje: 'Falta el ID del usuario.' };
+
+  const hoja = getHoja(SHEET_USUARIOS);
+  const { cabeceras, filas } = obtenerDatosHoja(hoja);
+  const idIdx = cabeceras.indexOf('ID');
+
+  for (let i = 0; i < filas.length; i++) {
+    if (filas[i][idIdx] === data.id) {
+      const filaSheet = i + 2;
+      if (data.modo === 'eliminar') {
+        hoja.deleteRow(filaSheet);
+        return { exito: true, mensaje: 'Usuario eliminado permanentemente.' };
+      }
+      hoja.getRange(filaSheet, cabeceras.indexOf('Estado') + 1).setValue('inactivo');
+      return { exito: true, mensaje: 'Usuario desactivado correctamente.' };
+    }
+  }
+  return { exito: false, mensaje: 'Usuario no encontrado.' };
+}
+
+function reactivarUsuario(usuarioActivo, data) {
+  if (!data.id) return { exito: false, mensaje: 'Falta el ID del usuario.' };
+
+  const hoja = getHoja(SHEET_USUARIOS);
+  const { cabeceras, filas } = obtenerDatosHoja(hoja);
+  const idIdx = cabeceras.indexOf('ID');
+
+  for (let i = 0; i < filas.length; i++) {
+    if (filas[i][idIdx] === data.id) {
+      hoja.getRange(i + 2, cabeceras.indexOf('Estado') + 1).setValue('activo');
+      return { exito: true, mensaje: 'Usuario reactivado correctamente.' };
+    }
+  }
+  return { exito: false, mensaje: 'Usuario no encontrado.' };
+}
+
+function cambiarPassword(usuarioActivo, data) {
+  if (!data.id || !data.nuevaPassword) return { exito: false, mensaje: 'Faltan datos (id, nuevaPassword).' };
+
+  const hoja = getHoja(SHEET_USUARIOS);
+  const { cabeceras, filas } = obtenerDatosHoja(hoja);
+  const idIdx = cabeceras.indexOf('ID');
+
+  for (let i = 0; i < filas.length; i++) {
+    if (filas[i][idIdx] === data.id) {
+      hoja.getRange(i + 2, cabeceras.indexOf('PasswordHash') + 1).setValue(hashPassword(data.nuevaPassword));
+      return { exito: true, mensaje: 'Contraseña actualizada correctamente.' };
+    }
+  }
+  return { exito: false, mensaje: 'Usuario no encontrado.' };
+}
+
+function cambiarRol(usuarioActivo, data) {
+  if (!data.id || !data.nuevoRol) return { exito: false, mensaje: 'Faltan datos (id, nuevoRol).' };
+
+  const hoja = getHoja(SHEET_USUARIOS);
+  const { cabeceras, filas } = obtenerDatosHoja(hoja);
+  const idIdx = cabeceras.indexOf('ID');
+
+  for (let i = 0; i < filas.length; i++) {
+    if (filas[i][idIdx] === data.id) {
+      hoja.getRange(i + 2, cabeceras.indexOf('Rol') + 1).setValue(data.nuevoRol);
+      return { exito: true, mensaje: 'Rol actualizado correctamente.' };
+    }
+  }
+  return { exito: false, mensaje: 'Usuario no encontrado.' };
+}
+
+// ================================================================
+// FLOTILLA (monitor + tránsito) — cualquier usuario logueado
+// ================================================================
+
+/**
+ * Actualiza (o crea) la posición del usuario autenticado.
+ * data = { lat, lng, velocidad, estado }
+ */
+function actualizarUbicacion(usuarioActivo, data) {
+  if (data.lat === undefined || data.lng === undefined) {
+    return { exito: false, mensaje: 'Faltan coordenadas (lat, lng).' };
+  }
+
+  const hoja = getHoja(SHEET_FLOTILLA);
+  const { cabeceras, filas } = obtenerDatosHoja(hoja);
+  const idIdx = cabeceras.indexOf('UsuarioID');
+  const ahora = new Date();
+
+  for (let i = 0; i < filas.length; i++) {
+    if (filas[i][idIdx] === usuarioActivo.ID) {
+      const filaSheet = i + 2;
+      hoja.getRange(filaSheet, 1, 1, cabeceras.length).setValues([[
+        usuarioActivo.ID, usuarioActivo.Nombre, data.lat, data.lng,
+        data.velocidad || 0, data.estado || 'activo', ahora
+      ]]);
+      return { exito: true };
+    }
+  }
+
+  hoja.appendRow([usuarioActivo.ID, usuarioActivo.Nombre, data.lat, data.lng, data.velocidad || 0, data.estado || 'activo', ahora]);
+  return { exito: true };
+}
+
+/**
+ * Lista la posición actual de toda la flotilla (para el Monitor y
+ * para que cada conductor vea "la flotilla completa").
+ */
+function listarFlotilla() {
+  const hoja = getHoja(SHEET_FLOTILLA);
+  const { cabeceras, filas } = obtenerDatosHoja(hoja);
+  return filas.map(function (fila) { return filaAObjeto(cabeceras, fila); });
+}
+
+// ================================================================
+// RUTAS — historial de posiciones cada ~5 minutos
+// ================================================================
+
+function guardarPuntoRuta(usuarioActivo, data) {
+  if (data.lat === undefined || data.lng === undefined) {
+    return { exito: false, mensaje: 'Faltan coordenadas (lat, lng).' };
+  }
+  const hoja = getHoja(SHEET_RUTAS);
+  hoja.appendRow([generarId(), usuarioActivo.ID, data.lat, data.lng, new Date()]);
+  return { exito: true };
+}
+
+// ================================================================
+// CHAT GLOBAL — cualquier usuario logueado
+// ================================================================
+
+function enviarMensaje(usuarioActivo, data) {
+  if (!data.mensaje || !data.mensaje.trim()) {
+    return { exito: false, mensaje: 'El mensaje no puede estar vacío.' };
+  }
+  const hoja = getHoja(SHEET_CHAT);
+  hoja.appendRow([generarId(), usuarioActivo.ID, usuarioActivo.Nombre, data.mensaje.trim(), new Date()]);
+  return { exito: true };
+}
+
+/**
+ * Lista mensajes del chat global. Si se pasa "desde" (timestamp ISO),
+ * solo devuelve mensajes posteriores — útil para hacer polling ligero.
+ */
+function listarMensajes(usuarioActivo, data) {
+  const hoja = getHoja(SHEET_CHAT);
+  const { cabeceras, filas } = obtenerDatosHoja(hoja);
+  const tsIdx = cabeceras.indexOf('Timestamp');
+
+  let mensajes = filas.map(function (fila) { return filaAObjeto(cabeceras, fila); });
+
+  if (data && data.desde) {
+    const desde = new Date(data.desde);
+    mensajes = mensajes.filter(function (m) { return new Date(m.Timestamp) > desde; });
+  }
+
+  return mensajes;
+}
+
+// ================================================================
+// ALERTAS SOS — cualquiera envía, solo dispatcher/admin las ve/atiende
+// ================================================================
+
+function enviarAlerta(usuarioActivo, data) {
+  const hoja = getHoja(SHEET_ALERTAS);
+  hoja.appendRow([
+    generarId(), usuarioActivo.ID, usuarioActivo.Nombre,
+    data.tipo || 'SOS', data.mensaje || '', data.lat || '', data.lng || '',
+    new Date(), false
+  ]);
+  return { exito: true, mensaje: 'Alerta enviada.' };
+}
+
+function listarAlertas() {
+  const hoja = getHoja(SHEET_ALERTAS);
+  const { cabeceras, filas } = obtenerDatosHoja(hoja);
+  return filas.map(function (fila) { return filaAObjeto(cabeceras, fila); })
+    .sort(function (a, b) { return new Date(b.Timestamp) - new Date(a.Timestamp); });
+}
+
+function atenderAlerta(usuarioActivo, data) {
+  if (!data.id) return { exito: false, mensaje: 'Falta el ID de la alerta.' };
+
+  const hoja = getHoja(SHEET_ALERTAS);
+  const { cabeceras, filas } = obtenerDatosHoja(hoja);
+  const idIdx = cabeceras.indexOf('ID');
+
+  for (let i = 0; i < filas.length; i++) {
+    if (filas[i][idIdx] === data.id) {
+      hoja.getRange(i + 2, cabeceras.indexOf('Atendida') + 1).setValue(true);
+      return { exito: true, mensaje: 'Alerta marcada como atendida.' };
+    }
+  }
+  return { exito: false, mensaje: 'Alerta no encontrada.' };
+}
+
+// ================================================================
+// ENRUTAMIENTO WEB — único punto de entrada para TODAS las páginas
+// ================================================================
+
+// Funciones que reciben (usuarioActivo, data) — necesitan sesión
+const ACCIONES_CON_USUARIO = {
+  logout: logout,
+  actualizarUbicacion: actualizarUbicacion,
+  guardarPuntoRuta: guardarPuntoRuta,
+  enviarMensaje: enviarMensaje,
+  listarMensajes: listarMensajes,
+  enviarAlerta: enviarAlerta,
+  atenderAlerta: atenderAlerta,
+  crearUsuario: crearUsuario,
+  editarUsuario: editarUsuario,
+  eliminarUsuario: eliminarUsuario,
+  reactivarUsuario: reactivarUsuario,
+  cambiarPassword: cambiarPassword,
+  cambiarRol: cambiarRol
+};
+
+// Funciones que no necesitan "data" con detalle de usuario en la firma
+const ACCIONES_SOLO_DATA = {
+  listarUsuarios: listarUsuarios,
+  listarFlotilla: listarFlotilla,
+  listarAlertas: listarAlertas
+};
+
+function manejarAccion(accion, token, data) {
+  if (accion === 'login') {
+    return login(data);
+  }
+
+  if (accion === 'verificarSesion') {
+    const check = verificarSesion(token);
+    return check.valido ? { exito: true, usuario: check.usuario } : { exito: false, mensaje: check.mensaje };
+  }
+
+  const auth = autorizar(token, accion);
+  if (!auth.ok) return auth.error;
+
+  if (ACCIONES_CON_USUARIO[accion]) {
+    return ACCIONES_CON_USUARIO[accion](auth.usuario, data || {});
+  }
+  if (ACCIONES_SOLO_DATA[accion]) {
+    return ACCIONES_SOLO_DATA[accion]();
+  }
+
+  return { exito: false, mensaje: 'Acción no reconocida: ' + accion };
+}
+
+function doGet(e) {
+  inicializarHojas();
+  const accion = e.parameter.accion;
+  const token = e.parameter.token;
+
+  try {
+    const data = Object.assign({}, e.parameter);
+    return respuestaJSON(envolverListas(accion, manejarAccion(accion, token, data)));
+  } catch (err) {
+    return respuestaJSON({ exito: false, mensaje: 'Error: ' + err.message });
+  }
+}
+
+function doPost(e) {
+  inicializarHojas();
+
+  let data;
+  try {
+    data = JSON.parse(e.postData.contents);
+  } catch (err) {
+    return respuestaJSON({ exito: false, mensaje: 'JSON inválido.' });
+  }
+
+  const accion = data.accion;
+  const token = data.token;
+
+  try {
+    return respuestaJSON(envolverListas(accion, manejarAccion(accion, token, data)));
+  } catch (err) {
+    return respuestaJSON({ exito: false, mensaje: 'Error: ' + err.message });
+  }
+}
+
+// Las acciones "listar*" devuelven un array plano; lo envolvemos en
+// { exito: true, datos: [...] } para que el frontend siempre reciba
+// la misma forma de respuesta. Las demás ya devuelven { exito, ... }.
+function envolverListas(accion, resultado) {
+  if (Array.isArray(resultado)) {
+    return { exito: true, datos: resultado };
+  }
+  return resultado;
+}
+
+// ================================================================
+// PRIMER USO — ejecutar UNA SOLA VEZ desde el editor de Apps Script
+// ================================================================
+/**
+ * Crea el primer usuario admin del sistema, para poder entrar por
+ * primera vez a Login.html (sin esto, nadie puede iniciar sesión).
+ *
+ * CÓMO USARLA:
+ *  1. Abre este proyecto en script.google.com (editor de Apps Script).
+ *  2. Cambia CORREO_ADMIN y PASSWORD_ADMIN abajo por los tuyos.
+ *  3. En el menú superior, selecciona la función "crearAdminInicial"
+ *     y presiona el botón ▶ Ejecutar (autoriza los permisos si te los pide).
+ *  4. Revisa el registro (Ver → Registro) para confirmar el resultado.
+ *  5. Borra o comenta esta función después de usarla, por seguridad.
+ */
+function crearAdminInicial() {
+  const CORREO_ADMIN = 'admin@tuempresa.com';   // <-- cámbialo
+  const PASSWORD_ADMIN = 'CambiaEstaClave123';  // <-- cámbialo
+
+  const resultado = crearUsuario(null, {
+    nombre: 'Administrador',
+    email: CORREO_ADMIN,
+    password: PASSWORD_ADMIN,
+    rol: 'admin'
+  });
+
+  Logger.log(JSON.stringify(resultado));
+  return resultado;
+}
